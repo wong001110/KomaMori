@@ -75,8 +75,6 @@ def upsert_localization(region_id: int, locale: str, payload: LocalizationUpsert
         if text_changed:
             effective_status = "needs-review"
         elif payload.status == "approved" and localization.status != "approved":
-            # Approval is a state transition with side effects on approved-memory;
-            # it must go through the explicit approve endpoint.
             effective_status = "needs-review"
         else:
             effective_status = payload.status
@@ -93,6 +91,22 @@ def _terms_for(session: Session, series_id: int, locale: str) -> list[Localizati
     return list(session.scalars(select(LocalizationTerm).where(LocalizationTerm.series_id == series_id, LocalizationTerm.locale == locale)))
 
 
+def _term_variants(term: LocalizationTerm) -> list[str]:
+    variants = [term.source, *(term.aliases or [])]
+    return list(dict.fromkeys(value.strip() for value in variants if value and value.strip()))
+
+
+def _locked_terms_for_source(terms: list[LocalizationTerm], source_text: str) -> dict[str, str]:
+    locked: dict[str, str] = {}
+    for term in terms:
+        if not term.locked:
+            continue
+        for variant in _term_variants(term):
+            if variant in source_text:
+                locked[variant] = term.target
+    return locked
+
+
 @router.post("/chapters/{chapter_id}/localize/{locale}", response_model=LocalizeChapterResult)
 def localize_chapter(chapter_id: int, locale: str, payload: LocalizeChapterRequest, session: Session = Depends(get_session), provider: TranslationProvider = Depends(get_translation_provider)) -> LocalizeChapterResult:
     chapter = session.get(Chapter, chapter_id)
@@ -101,7 +115,6 @@ def localize_chapter(chapter_id: int, locale: str, payload: LocalizeChapterReque
     series = session.get(Series, chapter.series_id)
     assert series is not None
     terms = _terms_for(session, series.id, locale)
-    locked_terms = {term.source: term.target for term in terms if term.locked}
     rows = session.execute(select(TextRegion, Page).join(Page, TextRegion.page_id == Page.id).where(Page.chapter_id == chapter_id).order_by(Page.page_index, TextRegion.reading_order, TextRegion.id)).all()
 
     created = reused = skipped = 0
@@ -121,7 +134,15 @@ def localize_chapter(chapter_id: int, locale: str, payload: LocalizeChapterReque
             source = "approved-memory"
             reused += 1
         else:
-            translated = provider.translate(TranslationRequest(source_text=region.source_text, source_language=series.source_language, target_locale=locale, nearby_context=history[-payload.context_regions :] if payload.context_regions else [], locked_terms={source: target for source, target in locked_terms.items() if source in region.source_text}))
+            translated = provider.translate(
+                TranslationRequest(
+                    source_text=region.source_text,
+                    source_language=series.source_language,
+                    target_locale=locale,
+                    nearby_context=history[-payload.context_regions :] if payload.context_regions else [],
+                    locked_terms=_locked_terms_for_source(terms, region.source_text),
+                )
+            )
             source = "machine"
             created += 1
         layout = layout_payload(translated, region.geometry)
@@ -160,8 +181,20 @@ def qa_chapter(chapter_id: int, locale: str, session: Session = Depends(get_sess
         if region.ocr_confidence is not None and region.ocr_confidence < 0.65:
             issues.append(QAIssue(code="low-ocr-confidence", severity="warning", page_id=page.id, region_id=region.id, localization_id=loc.id, message=f"OCR confidence is {region.ocr_confidence:.2f}"))
         for term in terms:
-            if term.locked and term.source in region.source_text and term.target not in loc.text:
-                issues.append(QAIssue(code="locked-term", severity="error", page_id=page.id, region_id=region.id, localization_id=loc.id, message=f"Locked term must use '{term.target}'"))
+            if not term.locked:
+                continue
+            matched = [variant for variant in _term_variants(term) if variant in region.source_text]
+            if matched and term.target not in loc.text:
+                issues.append(
+                    QAIssue(
+                        code="locked-term",
+                        severity="error",
+                        page_id=page.id,
+                        region_id=region.id,
+                        localization_id=loc.id,
+                        message=f"Locked term '{term.source}' (matched '{matched[0]}') must use '{term.target}'",
+                    )
+                )
         if loc.layout.get("fitStatus") == "poor-fit":
             issues.append(QAIssue(code="poor-fit", severity="warning", page_id=page.id, region_id=region.id, localization_id=loc.id, message="Translation does not fit the current region at the minimum font size"))
     return QAResult(chapter_id=chapter.id, locale=locale, issues=issues)
