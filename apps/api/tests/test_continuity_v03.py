@@ -19,6 +19,7 @@ base = continuity.base
 
 def manifest_text(*, mapped: bool = True) -> str:
     disposition = "mapped" if mapped else "unmapped"
+    source_refs = '["FND-10-001"]' if mapped else "[]"
     return f'''manifest_version = 2
 id = "phase-10"
 project = "komamori"
@@ -43,7 +44,7 @@ status = "active"
 id = "P10-R01"
 title = "Ready safety"
 disposition = "required"
-source_refs = ["FND-10-001"]
+source_refs = {source_refs}
 
 [requirements.impacts]
 modules = ["apps/api/src/komamori/routers/workbench.py"]
