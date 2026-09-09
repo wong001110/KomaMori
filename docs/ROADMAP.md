@@ -112,166 +112,96 @@ The same processed source was explicitly tested with both `en` and `zh-TW` local
 
 ---
 
-### Phase 4 — MVP hardening + handoff 🚧
+### Phase 4 — MVP hardening + handoff ✅
 
-Goal: make the implemented workflow honestly runnable as a small self-hosted MVP and align documentation with the real code.
-
-In scope:
+Implemented:
 
 - Dockerized API
 - Dockerized production web build + Nginx API proxy
 - Compose persistence for SQLite and assets
 - container build CI gate
 - README / architecture / roadmap synchronization
-- final Agent Continuity restore test after merge
+- destructive Agent Continuity restore test from Library
+
+Gate evidence:
+
+- backend pytest success
+- frontend production build success
+- Docker Compose configuration and API/Web image build success
+- restored continuity state matched the final GitHub main checkpoint
+
+---
+
+### Phase 5 — Agent Continuity v0.2 completion traceability ✅
+
+PR #6
+
+Implemented:
+
+- Git-tracked phase scope manifests with stable Requirement / Acceptance Check IDs
+- durable manifest hash/revision state
+- check-level evidence records bound to commit/workspace identity
+- declared evidence-kind enforcement (`test`, `review`, etc.)
+- fail-closed completion gates that enumerate missing IDs
+- scope-change invalidation
+- completion rejection without a current passing gate
+- completeness-aware bootstrap with first unfinished check
+- backward-compatible v0.1 SQLite upgrade
+- task PR linkage
+
+This phase upgrades continuity from “resume where execution stopped” to “resume without silently dropping promised work.”
+
+---
+
+### Phase 6 — Data integrity + safe processing 🚧
+
+Approved scope: `.agent-continuity/plans/phase-6.toml`
+
+In scope:
+
+- automatic detections remain `unknown` until explicitly classified
+- destructive cleanup uses a cleanable-type allowlist
+- `unknown` and `sfx` are excluded from automatic cleanup/localization/locale completion counts
+- persistent per-region text-mask assets
+- clean pages are generated from persisted masks
+- geometry/type edits invalidate stale mask and clean-page assets
+- geometry edits recompute per-locale layout
+- source OCR edits demote localizations to `needs-review`
+- editing approved translation text demotes it to `needs-review`
+- explicit re-approval refreshes approved-translation reuse memory
 
 Exit condition:
 
-```text
-docker compose up --build
-```
-
-provides the web workspace on `http://localhost:8787`, CI is green, and a fresh cloud session can restore the final development state from the durable SQLite snapshot without relying on previous chat context.
+- every `P6-*` acceptance check has commit-bound required evidence
+- PR CI is green
+- v0.2 completion gate passes for the exact PR head and post-merge tree-equivalent commit
 
 ---
 
-# Post-MVP engineering track
+# Next engineering track
 
-These improve the practical baseline before more speculative AI work.
+After Phase 6, prioritize correction UX and persistence lifecycle before speculative multimodal work:
 
-## Reliable manga processing
-
-- benchmark manga-specialized text detectors instead of relying on the OpenCV heuristic
-- benchmark Tesseract vs MangaOCR vs other OCR choices on a fixed manga set
-- preserve OCR confidence where providers expose it
-- interactive region add/move/resize/delete in the web editor
+- interactive region create/delete/type/move/resize
 - manual mask refinement
-- cleanup routing: flat fill vs conventional inpaint vs neural inpaint
-- background processing queue + progress UI for chapter jobs
+- chapter/locale readiness lifecycle
+- SQLite schema migrations
+- one full browser E2E workflow
+- OCR confidence only when a provider genuinely exposes it
+- translation ↔ layout shortening feedback
 
-## Layout and rendering
+# Research track
 
-- polygon/balloon-aware safe area
-- measured text layout rather than character-count approximation
-- better line-break search and visual balance scoring
-- font registry and per-locale typography presets
-- optional pre-rendered page cache and invalidation
+Later experiments remain hypothesis-driven:
 
-## Translation ↔ layout feedback
-
-Current MVP detects `poor-fit` and calculates a rough target length. The next experiment is to close the loop:
-
-```text
-translation
-   ↓
-auto-fit
-   ↓
-poor-fit?
-   ↓ yes
-request a shorter equivalent
-   ↓
-re-fit + review
-```
-
-The shorter version must preserve meaning and locked terminology.
-
-## Quality measurement
-
-Track practical metrics rather than feature count:
-
-- OCR correction rate
-- missed/false text regions
-- terminology violations
-- translation corrections
-- clean-page artifact rate
-- % layouts accepted without manual adjustment
-- manual correction time per page
-
----
-
-# Post-MVP research track
-
-## Visual-context translation
-
-Hypothesis: a general VLM helps a subset of ambiguous dialogue.
-
-Compare:
-
-- text only
-- nearby dialogue
-- panel/page visual context
-
-Only introduce visual escalation rules if human evaluation shows a meaningful improvement.
-
-## Speaker metadata
-
-Hypothesis: speaker identity helps omitted subjects, register, relationships, or pronouns.
-
-Start with a manually labeled evaluation set. Automatic speaker detection is not justified until the translation benefit is demonstrated.
-
-## Larger-context strategies
-
-Compare:
-
-- current region only
-- nearby N regions
-- selected prior dialogue
-- chapter summary
-- semantic retrieval only if long-range failures justify it
-
-## Typography-role matching
-
-Explore roles rather than exact font-name recognition:
-
-```text
-normal dialogue
-shout
-whisper
-thought
-narration
-dramatic / horror
-```
-
-## SFX exploration
-
-Treat SFX as a graphics/localization research problem rather than ordinary dialogue:
-
-- detect SFX separately
-- OCR stylized/rotated text
-- semantic localization choices
-- preserve-vs-replace modes
-- transformed text placement
-- outline/rotation/warp reproduction
-- difficult background reconstruction
-
-SFX automation becomes normal workflow only if it reduces graphics work without visibly damaging art.
-
-## Experiment harness
-
-Later, make comparisons repeatable by recording:
-
-- model/provider
-- prompt/version
-- context strategy
-- VLM on/off
-- terminology strategy
-- latency / API cost when available
-- outputs
-- human corrections
-- preference / acceptance scores
-
-Example comparisons:
-
-```text
-Model A vs Model B
-2 nearby regions vs 6
-text-only vs VLM
-locked terms vs no locked terms
-speaker metadata vs none
-layout-aware shortening vs ordinary translation
-```
-
----
+- manga-specialized detector benchmarking
+- OCR provider benchmarking
+- VLM visual-context escalation
+- speaker metadata
+- larger context strategies
+- typography-role matching
+- SFX reconstruction
+- repeatable experiment harness
 
 # Architecture rule
 
