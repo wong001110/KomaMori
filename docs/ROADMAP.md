@@ -1,209 +1,155 @@
 # KomaMori Roadmap
 
-KomaMori is developed **phase by phase through pull requests**. The rule is usable capability first, experiments second: an optional AI feature should not become permanent architecture until it solves a measured failure of the simpler baseline.
+KomaMori is developed **phase by phase through pull requests**. The rule is usable capability first, experiments second: optional AI features do not become permanent architecture until they solve a measured failure of the simpler baseline.
 
-## MVP execution history
+## Execution history
 
 ### Phase 0 — Foundation ✅
-
 PR #1
 
-Implemented:
-
-- FastAPI + SQLAlchemy application foundation
+- FastAPI + SQLAlchemy foundation
 - React/Vite web shell
 - SQLite/local asset direction
-- `Series → Chapter → Page → TextRegion → Localization` source model
+- `Series → Chapter → Page → TextRegion → Localization` model
 - immutable-original / derived-asset boundary
-- Agent Continuity SQLite schema and bootstrap protocol
-
-Gate evidence:
-
-- API health test
-- continuity state initialization/bootstrap
-- first durable SQLite snapshot stored outside the ephemeral workspace
-
----
+- Agent Continuity v0.1 bootstrap/state store
 
 ### Phase 1 — Structured manga core ✅
-
 PR #2
 
-Implemented:
-
 - Series / Chapter creation and browsing
-- image import
-- CBZ/ZIP import
-- natural page ordering
-- image validation and original asset persistence
-- manual TextRegion API
-- initial Library web UI
-
-Gate evidence:
-
-- backend import/asset/region tests
-- 3 pytest tests passing at the phase gate
-
----
+- image + CBZ/ZIP import
+- natural page ordering and validation
+- immutable original asset persistence
+- initial TextRegion API and Library UI
 
 ### Phase 2 — Localization processing core ✅
-
 PR #3
 
-Implemented:
-
-- OpenCV text-region detection baseline
-- pluggable OCR provider
-  - Tesseract default
-  - MangaOCR optional runtime
-- derived clean-page generation with OpenCV inpainting
+- OpenCV text detection baseline
+- Tesseract default OCR + optional MangaOCR
+- cleanup/inpainting baseline
 - locked terminology
-- OpenAI-compatible translation provider abstraction
-- nearby-dialogue context
-- exact approved-translation reuse
-- per-locale Localization data
-- heuristic auto-fit
-- deterministic QA
-- approval/reuse workflow
+- OpenAI-compatible translation provider
+- approved-translation reuse
+- per-locale localization, auto-fit and deterministic QA
 
-Gate evidence:
-
-- synthetic processing tests with fake OCR
-- translation tests with fake provider
-- 7 pytest tests passing at the phase gate
-
-Explicitly deferred:
-
-- SFX reconstruction
-- character-voice subsystem
-- emotion subsystem
-- semantic RAG
-
----
-
-### Phase 3 — Web localization workbench + multilingual reader ✅
-
+### Phase 3 — Web workbench + multilingual reader ✅
 PR #4
 
-Implemented:
+- chapter Detect/OCR + Clean actions
+- multilingual workbench and Reader
+- OCR/source + target editing
+- terms, QA navigation and approval
+- shared structured overlays
+- backend + frontend CI
 
-- chapter-level Detect/OCR and Clean actions
-- multilingual workbench view API
-- locale completion indicators
-- shared structured `MangaStage` overlay rendering
-- OCR/source text editing
-- target translation editing
-- terminology editing
-- deterministic QA issue navigation
-- approval from the editor
-- multilingual reader
-- Original / Localized reader toggle
-- Library → Workbench → Reader workflow
-- GitHub Actions for backend tests and real frontend production build
+### Phase 4 — MVP hardening + self-host handoff ✅
+PR #5
 
-Gate evidence:
-
-- 9 local pytest tests passing
-- local TS/TSX syntax transpile check
-- GitHub Actions frontend `npm install + npm run build` success
-- GitHub Actions backend pytest success
-
-The same processed source was explicitly tested with both `en` and `zh-TW` localizations sharing one TextRegion identity.
-
----
-
-### Phase 4 — MVP hardening + handoff ✅
-
-Implemented:
-
-- Dockerized API
-- Dockerized production web build + Nginx API proxy
-- Compose persistence for SQLite and assets
-- container build CI gate
-- README / architecture / roadmap synchronization
-- destructive Agent Continuity restore test from Library
-
-Gate evidence:
-
-- backend pytest success
-- frontend production build success
-- Docker Compose configuration and API/Web image build success
-- restored continuity state matched the final GitHub main checkpoint
-
----
+- Dockerized API and production web/Nginx
+- Compose persistence
+- container-build CI
+- README/architecture alignment
+- destructive Agent Continuity restore verification
 
 ### Phase 5 — Agent Continuity v0.2 completion traceability ✅
-
 PR #6
 
-Implemented:
-
-- Git-tracked phase scope manifests with stable Requirement / Acceptance Check IDs
-- durable manifest hash/revision state
-- check-level evidence records bound to commit/workspace identity
-- declared evidence-kind enforcement (`test`, `review`, etc.)
-- fail-closed completion gates that enumerate missing IDs
+- Git-tracked scope manifests with stable Requirement / Acceptance Check IDs
+- durable manifest revision/hash state
+- check-level evidence bound to commit/workspace
+- evidence-kind enforcement
+- fail-closed gates with missing-ID reporting
 - scope-change invalidation
-- completion rejection without a current passing gate
-- completeness-aware bootstrap with first unfinished check
-- backward-compatible v0.1 SQLite upgrade
-- task PR linkage
+- completeness-aware bootstrap
+- backward-compatible v0.1 state upgrade
 
-This phase upgrades continuity from “resume where execution stopped” to “resume without silently dropping promised work.”
+This phase changed continuity from “resume where execution stopped” to “resume without silently dropping promised work.”
 
----
+### Phase 6 — Data integrity + safe processing ✅
+PR #7
 
-### Phase 6 — Data integrity + safe processing 🚧
+- detections default to `unknown` instead of assuming dialogue
+- cleanup/localization use explicit safe-type allowlists
+- `unknown` / `sfx` excluded from destructive automatic processing
+- persistent per-region mask assets
+- clean pages generated from persisted masks
+- geometry/type/create/delete invalidation for derived clean/mask state
+- geometry edits recompute layout
+- source edits invalidate review approval
+- edited approved translations require re-approval before reuse memory updates
 
-Approved scope: `.agent-continuity/plans/phase-6.toml`
+### Phase 7 — Interactive region correction ✅
+PR #8
 
-In scope:
+- false-positive region deletion
+- region type + reading-order editing
+- drag/move + resize geometry correction
+- draw-to-add region flow
+- Reader hides `unknown` / `sfx` overlays while Workbench keeps them available for correction
 
-- automatic detections remain `unknown` until explicitly classified
-- destructive cleanup uses a cleanable-type allowlist
-- `unknown` and `sfx` are excluded from automatic cleanup/localization/locale completion counts
-- persistent per-region text-mask assets
-- clean pages are generated from persisted masks
-- geometry/type edits invalidate stale mask and clean-page assets
-- geometry edits recompute per-locale layout
-- source OCR edits demote localizations to `needs-review`
-- editing approved translation text demotes it to `needs-review`
-- explicit re-approval refreshes approved-translation reuse memory
+### Phase 8 — Application data lifecycle ✅
+PR #9
 
-Exit condition:
+- versioned SQLite migration ledger/runner
+- adoption of existing databases without destructive reset
+- SQLite foreign-key enforcement
+- complete Series / Chapter create-read-update-delete lifecycle
+- filesystem asset cleanup on chapter/series deletion
+- Library edit/delete controls
+- per-locale `in-progress` / `review` / `ready` readiness
+- readiness surfaced in Reader
 
-- every `P6-*` acceptance check has commit-bound required evidence
-- PR CI is green
-- v0.2 completion gate passes for the exact PR head and post-merge tree-equivalent commit
+### Phase 9 — Verification + localization correctness
+PR #10
 
----
+Scope:
 
-# Next engineering track
+- actionable default Tesseract confidence from word-level OCR confidence
+- locked terminology aliases in translation and deterministic QA
+- Workbench alias configuration/review
+- real full-stack Playwright browser workflow
+- final README / architecture / roadmap alignment
+- final Agent Continuity completeness audit
 
-After Phase 6, prioritize correction UX and persistence lifecycle before speculative multimodal work:
+Completion criterion:
 
-- interactive region create/delete/type/move/resize
-- manual mask refinement
-- chapter/locale readiness lifecycle
-- SQLite schema migrations
-- one full browser E2E workflow
-- OCR confidence only when a provider genuinely exposes it
-- translation ↔ layout shortening feedback
+- backend pytest, frontend production build, container build and Playwright E2E all pass on the same exact head
+- every `P9-*` check has required evidence
+- v0.2 completion gate passes before merge and again against the tree-equivalent squash merge commit
 
-# Research track
+## Explicitly unfinished engineering
 
-Later experiments remain hypothesis-driven:
+These are tracked future work, not missing hidden scope:
 
-- manga-specialized detector benchmarking
-- OCR provider benchmarking
+- pixel-level manual mask painting/refinement
+- manga-specialized detector benchmarking and possible replacement of the OpenCV heuristic
+- OCR provider benchmarking/calibration beyond Tesseract’s engine confidence
+- background processing queue + progress UI for long chapter jobs
+- measured/polygon-aware typography and layout
+- translation ↔ layout automatic shortening loop
+- optional pre-rendered localized-page cache + invalidation
+
+## Research track
+
+These remain hypothesis-driven experiments:
+
 - VLM visual-context escalation
 - speaker metadata
-- larger context strategies
+- larger-context strategies
 - typography-role matching
-- SFX reconstruction
-- repeatable experiment harness
+- SFX reconstruction/style transfer
+- repeatable model/prompt/context experiment harness
 
-# Architecture rule
+## Deliberate non-goals / deferred behavior
+
+- automatic semantic region-type classification is **not** trusted yet; detections intentionally begin as `unknown` and require correction/classification before destructive processing
+- SFX reconstruction remains deferred
+- no character-voice or emotion microservices
+- no multi-user/public manga catalog in the current self-hosted MVP
+
+## Architecture rule
 
 Before introducing a new subsystem, answer at least one:
 

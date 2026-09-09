@@ -1,0 +1,89 @@
+manifest_version = 1
+id = "phase-9"
+project = "komamori"
+title = "Verification and localization correctness"
+
+[[requirements]]
+id = "P9-R01"
+title = "Actionable OCR confidence"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P9-R01-C01"
+description = "Default Tesseract OCR returns normalized confidence when word-level confidence is available"
+evidence = ["test", "review"]
+
+[[requirements.checks]]
+id = "P9-R01-C02"
+description = "Low-confidence QA is exercised with the default Tesseract provider contract rather than only fake OCR providers"
+evidence = ["test"]
+
+[[requirements]]
+id = "P9-R02"
+title = "Localization term aliases"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P9-R02-C01"
+description = "Locked terminology applies when source text contains a configured alias rather than only the canonical source term"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P9-R02-C02"
+description = "Deterministic QA enforces the locked target when a canonical term alias appears in source text"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P9-R02-C03"
+description = "The Workbench terminology form can persist comma-separated aliases and shows configured aliases for review"
+evidence = ["build", "review"]
+
+[[requirements]]
+id = "P9-R03"
+title = "Browser end-to-end workflow"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P9-R03-C01"
+description = "CI launches the real FastAPI and Vite applications and completes a browser workflow from Series creation to Reader"
+evidence = ["e2e", "review"]
+
+[[requirements.checks]]
+id = "P9-R03-C02"
+description = "The browser workflow creates a chapter, imports a page, draws/classifies a region, enters source and translation, approves it, and observes Ready state in Reader"
+evidence = ["e2e"]
+
+[[requirements]]
+id = "P9-R04"
+title = "Documentation and final claim alignment"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P9-R04-C01"
+description = "README reflects current region correction, masks, migrations, readiness, OCR confidence behavior, and remaining limitations without stale MVP claims"
+evidence = ["review"]
+
+[[requirements.checks]]
+id = "P9-R04-C02"
+description = "ROADMAP marks completed execution phases accurately and keeps genuinely unfinished engineering/research work explicit"
+evidence = ["review"]
+
+[[requirements.checks]]
+id = "P9-R04-C03"
+description = "Architecture documentation matches the implemented modular monolith, safe processing, persistent masks, migration ledger, and derived-state invalidation"
+evidence = ["review"]
+
+[[requirements]]
+id = "P9-R05"
+title = "Final completeness audit"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P9-R05-C01"
+description = "Final PR passes backend, frontend, container and browser E2E CI on the same exact head commit"
+evidence = ["test", "build", "container", "e2e"]
+
+[[requirements.checks]]
+id = "P9-R05-C02"
+description = "A final repository review finds no remaining untracked requirement from the original KomaMori completeness review"
+evidence = ["review"]

@@ -15,7 +15,7 @@ class FakeTranslator:
 
     def translate(self, request: TranslationRequest) -> str:
         self.calls.append(request)
-        if "黒騎士" in request.source_text:
+        if "黒騎士" in request.source_text or "ブラックナイト" in request.source_text:
             return "The Black Knight has returned."
         return f"Translated: {request.source_text}"
 
@@ -68,6 +68,41 @@ def test_terms_translation_qa_and_approved_reuse(client: TestClient) -> None:
     assert fake2.calls == []
     second_loc = client.get(f"/api/regions/{second['id']}/localizations").json()[0]
     assert second_loc["source"] == "approved-memory"
+
+
+def test_locked_term_alias_is_used_for_translation_and_qa(client: TestClient) -> None:
+    series_id, chapter_id, region_id = setup_region(client, "ブラックナイトが戻った")
+    term = client.post(
+        f"/api/series/{series_id}/terms",
+        json={
+            "locale": "en",
+            "source": "黒騎士",
+            "target": "Black Knight",
+            "aliases": ["ブラックナイト"],
+            "locked": True,
+        },
+    )
+    assert term.status_code == 201
+
+    fake = FakeTranslator()
+    app.dependency_overrides[get_translation_provider] = lambda: fake
+    try:
+        localized = client.post(f"/api/chapters/{chapter_id}/localize/en", json={"overwrite": False})
+    finally:
+        app.dependency_overrides.pop(get_translation_provider, None)
+    assert localized.status_code == 200
+    assert fake.calls[0].locked_terms == {"ブラックナイト": "Black Knight"}
+    assert client.get(f"/api/chapters/{chapter_id}/qa/en").json()["issues"] == []
+
+    # Manual correction that drops the locked target must still be flagged when the source matched an alias.
+    client.put(
+        f"/api/regions/{region_id}/localizations/en",
+        json={"text": "The Dark Knight returned.", "status": "needs-review"},
+    )
+    issues = client.get(f"/api/chapters/{chapter_id}/qa/en").json()["issues"]
+    locked = [issue for issue in issues if issue["code"] == "locked-term"]
+    assert len(locked) == 1
+    assert "ブラックナイト" in locked[0]["message"]
 
 
 def test_locked_term_and_poor_fit_are_reported(client: TestClient) -> None:

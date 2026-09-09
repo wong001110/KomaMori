@@ -70,8 +70,12 @@ export function Workbench({ chapterId, seriesId, initialLocale, onLocaleChange, 
     const form = new FormData(event.currentTarget);
     const source = String(form.get("source") ?? "").trim();
     const target = String(form.get("target") ?? "").trim();
+    const aliases = String(form.get("aliases") ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
     if (!source || !target) return;
-    await run(() => api.createTerm(seriesId, locale, source, target));
+    await run(() => api.createTerm(seriesId, locale, source, target, aliases));
     event.currentTarget.reset();
   };
 
@@ -222,10 +226,16 @@ export function Workbench({ chapterId, seriesId, initialLocale, onLocaleChange, 
             <form className="term-form" onSubmit={addTerm}>
               <input name="source" placeholder="Source term" />
               <input name="target" placeholder={`${locale} term`} />
+              <input name="aliases" className="term-alias-input" placeholder="Aliases (comma-separated)" />
               <button disabled={busy}>Lock</button>
             </form>
             <div className="term-list">
-              {terms.slice(0, 8).map((term) => <div key={term.id}><span>{term.source}</span><strong>{term.target}</strong></div>)}
+              {terms.slice(0, 8).map((term) => (
+                <div key={term.id}>
+                  <span>{term.source}{term.aliases.length ? <small className="term-aliases"> aka {term.aliases.join(", ")}</small> : null}</span>
+                  <strong>{term.target}</strong>
+                </div>
+              ))}
             </div>
           </section>
 

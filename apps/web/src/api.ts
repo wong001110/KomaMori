@@ -47,7 +47,7 @@ export const api = {
   getChapterView: (chapterId: number, locale: string) => request<ChapterView>(`/api/chapters/${chapterId}/view/${encodeURIComponent(locale)}`),
   listLocales: (chapterId: number) => request<LocaleSummary[]>(`/api/chapters/${chapterId}/locales`),
   listTerms: (seriesId: number, locale: string) => request<Term[]>(`/api/series/${seriesId}/terms?locale=${encodeURIComponent(locale)}`),
-  createTerm: (seriesId: number, locale: string, source: string, target: string) => request<Term>(`/api/series/${seriesId}/terms`, { method: "POST", ...json({ locale, source, target, locked: true }) }),
+  createTerm: (seriesId: number, locale: string, source: string, target: string, aliases: string[] = []) => request<Term>(`/api/series/${seriesId}/terms`, { method: "POST", ...json({ locale, source, target, aliases, locked: true }) }),
   saveLocalization: (regionId: number, locale: string, text: string, status = "needs-review") => request<Localization>(`/api/regions/${regionId}/localizations/${encodeURIComponent(locale)}`, { method: "PUT", ...json({ text, status }) }),
   localizeChapter: (chapterId: number, locale: string) => request<{ chapter_id: number; locale: string; created: number; reused: number; skipped: number }>(`/api/chapters/${chapterId}/localize/${encodeURIComponent(locale)}`, { method: "POST", ...json({ overwrite: false, context_regions: 3 }) }),
   qaChapter: (chapterId: number, locale: string) => request<{ chapter_id: number; locale: string; issues: QAIssue[] }>(`/api/chapters/${chapterId}/qa/${encodeURIComponent(locale)}`),
