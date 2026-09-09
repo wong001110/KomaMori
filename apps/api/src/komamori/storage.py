@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import re
+import shutil
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -114,6 +115,15 @@ class AssetStore:
             return
         target = self._target(relative)
         if target.is_file():
+            target.unlink()
+
+    def delete_tree(self, relative: str | Path) -> None:
+        target = self._target(relative)
+        if target == self.root:
+            raise ValueError("Refusing to delete the asset root")
+        if target.is_dir():
+            shutil.rmtree(target)
+        elif target.is_file():
             target.unlink()
 
     def resolve(self, relative: str) -> Path:
