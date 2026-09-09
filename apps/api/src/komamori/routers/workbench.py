@@ -18,6 +18,14 @@ from ..schemas import (
 router = APIRouter(prefix="/api", tags=["workbench"])
 
 
+def _locale_status(translated: int, approved: int, total: int) -> str:
+    if total > 0 and approved == total:
+        return "ready"
+    if total > 0 and translated == total:
+        return "review"
+    return "in-progress"
+
+
 @router.get("/chapters/{chapter_id}/locales", response_model=list[LocaleSummary])
 def chapter_locales(chapter_id: int, session: Session = Depends(get_session)) -> list[LocaleSummary]:
     chapter = session.get(Chapter, chapter_id)
@@ -45,12 +53,14 @@ def chapter_locales(chapter_id: int, session: Session = Depends(get_session)) ->
             stats["translated"] += 1
         if localization.status == "approved":
             stats["approved"] += 1
+    total = len(regions)
     return [
         LocaleSummary(
             locale=locale,
             translated=stats["translated"],
             approved=stats["approved"],
-            total_regions=len(regions),
+            total_regions=total,
+            status=_locale_status(stats["translated"], stats["approved"], total),
         )
         for locale, stats in sorted(by_locale.items())
     ]

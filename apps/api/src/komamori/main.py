@@ -6,7 +6,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .db import Base, engine
+from .db import engine
+from .migrations import run_migrations
 from .routers.library import router as library_router
 from .routers.localization import router as localization_router
 from .routers.processing import router as processing_router
@@ -19,7 +20,7 @@ async def lifespan(_: FastAPI):
     from . import models  # noqa: F401
 
     settings.asset_root.mkdir(parents=True, exist_ok=True)
-    Base.metadata.create_all(bind=engine)
+    run_migrations(engine)
     yield
 
 

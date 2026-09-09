@@ -9,7 +9,7 @@ from ..autofit import layout_payload
 from ..db import get_session
 from ..models import Chapter, Localization, Page, Series, TextRegion
 from ..region_types import CLEANABLE_REGION_TYPES
-from ..schemas import ChapterCreate, ChapterDetail, ChapterRead, ImportResult, PageRead, SeriesCreate, SeriesDetail, SeriesRead, TextRegionCreate, TextRegionRead, TextRegionUpdate
+from ..schemas import ChapterCreate, ChapterDetail, ChapterRead, ChapterUpdate, ImportResult, PageRead, SeriesCreate, SeriesDetail, SeriesRead, SeriesUpdate, TextRegionCreate, TextRegionRead, TextRegionUpdate
 from ..storage import AssetStore, get_asset_store, unpack_uploads
 
 router = APIRouter(prefix="/api", tags=["library"])
@@ -20,6 +20,12 @@ def _get_or_404(session: Session, model: type[Series] | type[Chapter] | type[Pag
     if value is None:
         raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
     return value
+
+
+def _delete_chapter_assets(assets: AssetStore, series_id: int, chapter_id: int) -> None:
+    assets.delete_tree(f"original/{series_id}/{chapter_id}")
+    assets.delete_tree(f"derived/clean/{chapter_id}")
+    assets.delete_tree(f"derived/masks/{chapter_id}")
 
 
 @router.get("/series", response_model=list[SeriesRead])
@@ -43,6 +49,36 @@ def get_series(series_id: int, session: Session = Depends(get_session)) -> Serie
     return SeriesDetail(id=series.id, title=series.title, source_language=series.source_language, chapters=[ChapterRead.model_validate(chapter) for chapter in chapters])
 
 
+@router.patch("/series/{series_id}", response_model=SeriesRead)
+def update_series(series_id: int, payload: SeriesUpdate, session: Session = Depends(get_session)) -> Series:
+    series = _get_or_404(session, Series, series_id)
+    changes = payload.model_dump(exclude_unset=True)
+    if "title" in changes and changes["title"] is not None:
+        changes["title"] = changes["title"].strip()
+    for key, value in changes.items():
+        if value is not None:
+            setattr(series, key, value)
+    session.commit()
+    session.refresh(series)
+    return series
+
+
+@router.delete("/series/{series_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_series(
+    series_id: int,
+    session: Session = Depends(get_session),
+    assets: AssetStore = Depends(get_asset_store),
+) -> Response:
+    series = _get_or_404(session, Series, series_id)
+    chapter_ids = list(session.scalars(select(Chapter.id).where(Chapter.series_id == series_id)))
+    for chapter_id in chapter_ids:
+        _delete_chapter_assets(assets, series_id, chapter_id)
+    assets.delete_tree(f"original/{series_id}")
+    session.delete(series)
+    session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/series/{series_id}/chapters", response_model=ChapterRead, status_code=status.HTTP_201_CREATED)
 def create_chapter(series_id: int, payload: ChapterCreate, session: Session = Depends(get_session)) -> Chapter:
     _get_or_404(session, Series, series_id)
@@ -61,6 +97,43 @@ def get_chapter(chapter_id: int, session: Session = Depends(get_session)) -> Cha
     chapter = _get_or_404(session, Chapter, chapter_id)
     pages = list(session.scalars(select(Page).where(Page.chapter_id == chapter_id).order_by(Page.page_index)))
     return ChapterDetail(id=chapter.id, series_id=chapter.series_id, title=chapter.title, number=chapter.number, status=chapter.status, pages=[PageRead.model_validate(page) for page in pages])
+
+
+@router.patch("/chapters/{chapter_id}", response_model=ChapterRead)
+def update_chapter(chapter_id: int, payload: ChapterUpdate, session: Session = Depends(get_session)) -> Chapter:
+    chapter = _get_or_404(session, Chapter, chapter_id)
+    changes = payload.model_dump(exclude_unset=True)
+    if "number" in changes and changes["number"] is not None and changes["number"] != chapter.number:
+        duplicate = session.scalar(
+            select(Chapter.id).where(
+                Chapter.series_id == chapter.series_id,
+                Chapter.number == changes["number"],
+                Chapter.id != chapter.id,
+            )
+        )
+        if duplicate is not None:
+            raise HTTPException(status_code=409, detail="A chapter with this number already exists")
+    if "title" in changes and changes["title"] is not None:
+        changes["title"] = changes["title"].strip()
+    for key, value in changes.items():
+        if value is not None:
+            setattr(chapter, key, value)
+    session.commit()
+    session.refresh(chapter)
+    return chapter
+
+
+@router.delete("/chapters/{chapter_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_chapter(
+    chapter_id: int,
+    session: Session = Depends(get_session),
+    assets: AssetStore = Depends(get_asset_store),
+) -> Response:
+    chapter = _get_or_404(session, Chapter, chapter_id)
+    _delete_chapter_assets(assets, chapter.series_id, chapter.id)
+    session.delete(chapter)
+    session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/chapters/{chapter_id}/import", response_model=ImportResult)
