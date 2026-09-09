@@ -219,11 +219,12 @@ CREATE TABLE IF NOT EXISTS fresh_review_gate_runs (
   created_at TEXT NOT NULL
 );
 
--- A review is meaningful only after the current captured scope has a passing
--- completion gate for the same commit. Enforce ordering even for direct SQL callers.
+-- Failed/blocked review attempts may be recorded for history. A passing review is
+-- accepted only after the current manifest has a passing completion gate for the same commit.
 CREATE TRIGGER IF NOT EXISTS guard_v03_review_after_completion
 BEFORE INSERT ON fresh_review_gate_runs
-WHEN EXISTS (SELECT 1 FROM scope_sources s WHERE s.phase_key = NEW.phase_key AND s.active = 1)
+WHEN NEW.status = 'passed'
+ AND EXISTS (SELECT 1 FROM scope_sources s WHERE s.phase_key = NEW.phase_key AND s.active = 1)
 BEGIN
   SELECT CASE WHEN NOT EXISTS (
     SELECT 1
@@ -237,33 +238,22 @@ BEGIN
   ) THEN RAISE(ABORT, 'v0.3 fresh review requires a passing completion gate for current manifest and commit') END;
 END;
 
--- Fail closed at the durable-store layer so the legacy v0.2 CLI cannot bypass
--- v0.3 capture/reviewer finalization rules. These triggers activate only for
--- phases that have v0.3 scope sources, so historical v0.1/v0.2 state remains compatible.
 CREATE TRIGGER IF NOT EXISTS guard_v03_phase_complete_update
 BEFORE UPDATE OF status ON phases
 WHEN NEW.status = 'completed'
  AND EXISTS (SELECT 1 FROM scope_sources s WHERE s.phase_key = NEW.phase_key AND s.active = 1)
 BEGIN
   SELECT CASE WHEN NOT EXISTS (
-    SELECT 1
-    FROM scope_manifests sm
+    SELECT 1 FROM scope_manifests sm
     WHERE sm.phase_key = NEW.phase_key
       AND EXISTS (
         SELECT 1 FROM scope_capture_gate_runs cg
-        WHERE cg.phase_key = NEW.phase_key
-          AND cg.manifest_hash = sm.content_hash
-          AND cg.status = 'passed'
+        WHERE cg.phase_key = NEW.phase_key AND cg.manifest_hash = sm.content_hash AND cg.status = 'passed'
       )
       AND EXISTS (
         SELECT 1 FROM gate_runs g
-        JOIN fresh_review_gate_runs fr
-          ON fr.phase_key = g.phase_key
-         AND fr.commit_sha = g.commit_sha
-         AND fr.status = 'passed'
-        WHERE g.phase_key = NEW.phase_key
-          AND g.manifest_hash = sm.content_hash
-          AND g.status = 'passed'
+        JOIN fresh_review_gate_runs fr ON fr.phase_key = g.phase_key AND fr.commit_sha = g.commit_sha AND fr.status = 'passed'
+        WHERE g.phase_key = NEW.phase_key AND g.manifest_hash = sm.content_hash AND g.status = 'passed'
       )
   ) THEN RAISE(ABORT, 'v0.3 phase completion requires capture, completion, and fresh-review gates') END;
 END;
@@ -274,24 +264,16 @@ WHEN NEW.status = 'completed'
  AND EXISTS (SELECT 1 FROM scope_sources s WHERE s.phase_key = NEW.phase_key AND s.active = 1)
 BEGIN
   SELECT CASE WHEN NOT EXISTS (
-    SELECT 1
-    FROM scope_manifests sm
+    SELECT 1 FROM scope_manifests sm
     WHERE sm.phase_key = NEW.phase_key
       AND EXISTS (
         SELECT 1 FROM scope_capture_gate_runs cg
-        WHERE cg.phase_key = NEW.phase_key
-          AND cg.manifest_hash = sm.content_hash
-          AND cg.status = 'passed'
+        WHERE cg.phase_key = NEW.phase_key AND cg.manifest_hash = sm.content_hash AND cg.status = 'passed'
       )
       AND EXISTS (
         SELECT 1 FROM gate_runs g
-        JOIN fresh_review_gate_runs fr
-          ON fr.phase_key = g.phase_key
-         AND fr.commit_sha = g.commit_sha
-         AND fr.status = 'passed'
-        WHERE g.phase_key = NEW.phase_key
-          AND g.manifest_hash = sm.content_hash
-          AND g.status = 'passed'
+        JOIN fresh_review_gate_runs fr ON fr.phase_key = g.phase_key AND fr.commit_sha = g.commit_sha AND fr.status = 'passed'
+        WHERE g.phase_key = NEW.phase_key AND g.manifest_hash = sm.content_hash AND g.status = 'passed'
       )
   ) THEN RAISE(ABORT, 'v0.3 phase completion requires capture, completion, and fresh-review gates') END;
 END;
@@ -302,24 +284,16 @@ WHEN NEW.status = 'completed'
  AND EXISTS (SELECT 1 FROM scope_sources s WHERE s.phase_key = NEW.phase_key AND s.active = 1)
 BEGIN
   SELECT CASE WHEN NOT EXISTS (
-    SELECT 1
-    FROM scope_manifests sm
+    SELECT 1 FROM scope_manifests sm
     WHERE sm.phase_key = NEW.phase_key
       AND EXISTS (
         SELECT 1 FROM scope_capture_gate_runs cg
-        WHERE cg.phase_key = NEW.phase_key
-          AND cg.manifest_hash = sm.content_hash
-          AND cg.status = 'passed'
+        WHERE cg.phase_key = NEW.phase_key AND cg.manifest_hash = sm.content_hash AND cg.status = 'passed'
       )
       AND EXISTS (
         SELECT 1 FROM gate_runs g
-        JOIN fresh_review_gate_runs fr
-          ON fr.phase_key = g.phase_key
-         AND fr.commit_sha = g.commit_sha
-         AND fr.status = 'passed'
-        WHERE g.phase_key = NEW.phase_key
-          AND g.manifest_hash = sm.content_hash
-          AND g.status = 'passed'
+        JOIN fresh_review_gate_runs fr ON fr.phase_key = g.phase_key AND fr.commit_sha = g.commit_sha AND fr.status = 'passed'
+        WHERE g.phase_key = NEW.phase_key AND g.manifest_hash = sm.content_hash AND g.status = 'passed'
       )
   ) THEN RAISE(ABORT, 'v0.3 task completion requires capture, completion, and fresh-review gates') END;
 END;
@@ -330,24 +304,16 @@ WHEN NEW.status = 'completed'
  AND EXISTS (SELECT 1 FROM scope_sources s WHERE s.phase_key = NEW.phase_key AND s.active = 1)
 BEGIN
   SELECT CASE WHEN NOT EXISTS (
-    SELECT 1
-    FROM scope_manifests sm
+    SELECT 1 FROM scope_manifests sm
     WHERE sm.phase_key = NEW.phase_key
       AND EXISTS (
         SELECT 1 FROM scope_capture_gate_runs cg
-        WHERE cg.phase_key = NEW.phase_key
-          AND cg.manifest_hash = sm.content_hash
-          AND cg.status = 'passed'
+        WHERE cg.phase_key = NEW.phase_key AND cg.manifest_hash = sm.content_hash AND cg.status = 'passed'
       )
       AND EXISTS (
         SELECT 1 FROM gate_runs g
-        JOIN fresh_review_gate_runs fr
-          ON fr.phase_key = g.phase_key
-         AND fr.commit_sha = g.commit_sha
-         AND fr.status = 'passed'
-        WHERE g.phase_key = NEW.phase_key
-          AND g.manifest_hash = sm.content_hash
-          AND g.status = 'passed'
+        JOIN fresh_review_gate_runs fr ON fr.phase_key = g.phase_key AND fr.commit_sha = g.commit_sha AND fr.status = 'passed'
+        WHERE g.phase_key = NEW.phase_key AND g.manifest_hash = sm.content_hash AND g.status = 'passed'
       )
   ) THEN RAISE(ABORT, 'v0.3 task completion requires capture, completion, and fresh-review gates') END;
 END;
