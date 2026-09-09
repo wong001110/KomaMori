@@ -66,7 +66,11 @@ def _mask_for_region(page: Page, region: TextRegion, assets: AssetStore) -> tupl
         f"derived/masks/{page.chapter_id}/{page.id}/{region.id}",
         suffix=".png",
     )
-    generate_text_mask(assets.resolve(page.original_asset), region.geometry, target)
+    try:
+        generate_text_mask(assets.resolve(page.original_asset), region.geometry, target)
+    except Exception:
+        assets.delete_many_best_effort([relative])
+        raise
     region.mask_asset = relative
     return relative, relative
 
@@ -97,12 +101,14 @@ def _clean_page(page: Page, *, session: Session, assets: AssetStore) -> tuple[bo
             f"derived/clean/{page.chapter_id}/{page.id}",
             suffix=".png",
         )
+        # Track the path before invoking the writer so even a partial file from a
+        # failing generator is known to the cleanup path.
+        created.append(clean_relative)
         generate_clean_page(
             assets.resolve(page.original_asset),
             [assets.resolve(mask) for mask in masks],
             clean_target,
         )
-        created.append(clean_relative)
         page.clean_asset = clean_relative
         page.processing_status = "cleaned"
         return True, [old_clean], created
