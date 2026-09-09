@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import io
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
+from komamori import processing
 from komamori.main import app
-from komamori.processing import detect_text_boxes, get_ocr_provider
+from komamori.processing import TesseractOCRProvider, detect_text_boxes, get_ocr_provider
 
 
 class FakeOCR:
@@ -37,6 +39,45 @@ def test_detector_finds_synthetic_text_block() -> None:
     assert detect_text_boxes(image)
 
 
+def test_tesseract_provider_returns_normalized_word_confidence(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(processing.pytesseract, "image_to_string", lambda *args, **kwargs: "テスト")
+    monkeypatch.setattr(
+        processing.pytesseract,
+        "image_to_data",
+        lambda *args, **kwargs: {"text": ["", "テ", "スト"], "conf": ["-1", "40", "80"]},
+    )
+    provider = TesseractOCRProvider("jpn")
+    text, confidence = provider.read(Image.new("RGB", (200, 100), "white"))
+    assert text == "テスト"
+    assert confidence == pytest.approx(0.60)
+
+
+def test_default_tesseract_confidence_reaches_low_confidence_qa(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    chapter_id, page_id = setup_page(client)
+    monkeypatch.delenv("KOMAMORI_OCR_PROVIDER", raising=False)
+    monkeypatch.setattr(processing.pytesseract, "image_to_string", lambda *args, **kwargs: "低信頼")
+    monkeypatch.setattr(
+        processing.pytesseract,
+        "image_to_data",
+        lambda *args, **kwargs: {"text": ["低信頼"], "conf": ["42"]},
+    )
+
+    analyzed = client.post(f"/api/pages/{page_id}/analyze")
+    assert analyzed.status_code == 200
+    regions = client.get(f"/api/pages/{page_id}/regions").json()
+    assert regions
+    assert regions[0]["ocr_confidence"] == pytest.approx(0.42)
+
+    region = regions[0]
+    assert client.patch(f"/api/regions/{region['id']}", json={"region_type": "dialogue"}).status_code == 200
+    assert client.put(
+        f"/api/regions/{region['id']}/localizations/en",
+        json={"text": "Low confidence", "status": "needs-review"},
+    ).status_code == 200
+    codes = {issue["code"] for issue in client.get(f"/api/chapters/{chapter_id}/qa/en").json()["issues"]}
+    assert "low-ocr-confidence" in codes
+
+
 def test_analyze_is_unclassified_and_cleanup_is_fail_safe(client: TestClient) -> None:
     _, page_id = setup_page(client)
     app.dependency_overrides[get_ocr_provider] = lambda: FakeOCR()
@@ -51,11 +92,9 @@ def test_analyze_is_unclassified_and_cleanup_is_fail_safe(client: TestClient) ->
     assert regions[0]["source_text"] == "テスト"
     assert all(region["region_type"] == "unknown" for region in regions)
 
-    # Unknown regions are never destructively cleaned by default.
     clean = client.post(f"/api/pages/{page_id}/clean")
     assert clean.status_code == 409
 
-    # Once explicitly classified, cleanup persists masks and consumes them.
     for region in regions:
         response = client.patch(f"/api/regions/{region['id']}", json={"region_type": "dialogue"})
         assert response.status_code == 200
