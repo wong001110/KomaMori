@@ -43,6 +43,28 @@ def _initial_finding_status(source: dict[str, Any], disposition: str) -> str:
     return status
 
 
+def _latest_capture(conn, phase: str, digest: str):
+    return conn.execute(
+        """SELECT * FROM scope_capture_gate_runs
+           WHERE phase_key=? AND manifest_hash=? ORDER BY id DESC LIMIT 1""",
+        (phase, digest),
+    ).fetchone()
+
+
+def _invalidate_capture(conn, phase: str, source_key: str, reason: str) -> None:
+    manifest = base._manifest_row(conn, phase)
+    if not manifest:
+        return
+    failures = [{"id": source_key, "reason": reason}]
+    cur = conn.execute(
+        "INSERT INTO scope_capture_gate_runs(phase_key,manifest_hash,status,failures_json,created_at) VALUES(?,?,'failed',?,?)",
+        (phase, manifest["content_hash"], json.dumps(failures, sort_keys=True), base.now()),
+    )
+    base._event(conn, "CAPTURE_INVALIDATED", f"Capture authority invalidated for {phase}", {
+        "gate_id": int(cur.lastrowid), "source": source_key, "reason": reason,
+    })
+
+
 def sync_manifest(db: Path, manifest_path: Path, commit: str | None = None) -> dict[str, Any]:
     manifest = base.load_manifest(manifest_path)
     result = base.sync_manifest(db, manifest_path, commit)
@@ -52,9 +74,8 @@ def sync_manifest(db: Path, manifest_path: Path, commit: str | None = None) -> d
     invariant_ids: list[str] = []
 
     with base.connect(db) as conn:
-        # Source items and invariants are durable capture history. They are never silently
-        # deactivated merely because a later manifest omits them. Explicit disposition
-        # (deferred/waived/superseded/rejected or retired invariant) is required instead.
+        # Captured sources/invariants remain durable until explicitly disposed/retired.
+        # A later manifest cannot make them disappear merely by omission.
         for source in manifest.get("sources") or []:
             key = str(source.get("id") or "").strip()
             if not key or key in source_ids:
@@ -79,8 +100,6 @@ def sync_manifest(db: Path, manifest_path: Path, commit: str | None = None) -> d
                 if disposition in TERMINAL_SOURCE_DISPOSITIONS:
                     status = disposition
                 elif old:
-                    # Review status is operational execution state. Ordinary manifest sync
-                    # must not regress verified/fixed/open lifecycle state to an initial value.
                     status = old["status"]
                 else:
                     status = _initial_finding_status(source, disposition)
@@ -118,8 +137,6 @@ def sync_manifest(db: Path, manifest_path: Path, commit: str | None = None) -> d
                 if ref not in source_ids:
                     raise base.ContinuityError(f"requirement {req_id} references source {ref} not present in current manifest")
                 conn.execute("INSERT INTO source_requirements(source_key,requirement_key) VALUES(?,?)", (ref, req_id))
-                # Mapping is objectively established by source_refs; derive mapped only from
-                # the temporary unmapped state, never override explicit terminal disposition.
                 conn.execute("UPDATE scope_sources SET disposition='mapped',updated_at=? WHERE source_key=? AND disposition='unmapped'", (stamp, ref))
             _replace_impacts(conn, "requirement_impacts", "requirement_key", req_id, req)
             for check in req.get("checks") or []:
@@ -190,12 +207,11 @@ def capture_gate(db: Path, phase: str) -> dict[str, Any]:
     return {"gate_id": gate_id, "phase": phase, "manifest_hash": digest, "status": status, "failures": failures}
 
 
-def _require_capture(conn, phase: str, digest: str) -> None:
-    if not conn.execute(
-        "SELECT 1 FROM scope_capture_gate_runs WHERE phase_key=? AND manifest_hash=? AND status='passed' ORDER BY id DESC LIMIT 1",
-        (phase, digest),
-    ).fetchone():
-        raise base.ContinuityError(f"phase {phase} has no passing scope capture gate for current manifest")
+def _require_capture(conn, phase: str, digest: str):
+    latest = _latest_capture(conn, phase, digest)
+    if not latest or latest["status"] != "passed":
+        raise base.ContinuityError(f"phase {phase} has no current passing scope capture gate")
+    return latest
 
 
 def evidence(db: Path, *, check_keys: list[str], kind: str, status: str, value: str,
@@ -301,6 +317,7 @@ def register_finding(db: Path, key: str, phase: str, severity: str,
                  description=excluded.description,status='open',discovered_commit=excluded.discovered_commit,updated_at=excluded.updated_at""",
             (key, phase, severity, title, description, commit, stamp, stamp),
         )
+        _invalidate_capture(conn, phase, key, "new reviewer finding requires explicit recapture")
         base._event(conn, "REVIEW_FINDING", f"Registered {key}: {title}", {"severity": severity, "commit": commit})
 
 
@@ -308,8 +325,14 @@ def finding_state(db: Path, key: str, status: str, reason: str | None, destinati
     if status not in FINDING_STATUSES:
         raise base.ContinuityError(f"invalid finding status: {status}")
     with base.connect(db) as conn:
-        if not conn.execute("SELECT 1 FROM review_findings WHERE finding_key=?", (key,)).fetchone():
+        row = conn.execute(
+            """SELECT rf.phase_key,ss.disposition FROM review_findings rf
+               JOIN scope_sources ss ON ss.source_key=rf.finding_key WHERE rf.finding_key=?""",
+            (key,),
+        ).fetchone()
+        if not row:
             raise base.ContinuityError(f"unknown finding: {key}")
+        old_disposition = row["disposition"]
         conn.execute("UPDATE review_findings SET status=?,updated_at=? WHERE finding_key=?", (status, base.now(), key))
         disposition = "mapped" if status in {"mapped", "fixed", "verified"} else status
         if disposition in SOURCE_DISPOSITIONS:
@@ -317,6 +340,8 @@ def finding_state(db: Path, key: str, status: str, reason: str | None, destinati
                 "UPDATE scope_sources SET disposition=?,reason=COALESCE(?,reason),destination=COALESCE(?,destination),updated_at=? WHERE source_key=?",
                 (disposition, reason, destination, base.now(), key),
             )
+            if disposition != old_disposition:
+                _invalidate_capture(conn, row["phase_key"], key, f"finding scope disposition changed: {old_disposition} -> {disposition}")
         base._event(conn, "FINDING_STATE", f"Finding {key} -> {status}", {"reason": reason, "destination": destination})
 
 
@@ -324,10 +349,13 @@ def _completion_gate_exists(conn, phase: str, commit: str) -> bool:
     manifest = base._manifest_row(conn, phase)
     if not manifest:
         return False
+    capture = _latest_capture(conn, phase, manifest["content_hash"])
+    if not capture or capture["status"] != "passed":
+        return False
     return bool(conn.execute(
         """SELECT 1 FROM gate_runs WHERE phase_key=? AND manifest_hash=? AND commit_sha=? AND status='passed'
-           ORDER BY id DESC LIMIT 1""",
-        (phase, manifest["content_hash"], commit),
+           AND created_at>=? ORDER BY id DESC LIMIT 1""",
+        (phase, manifest["content_hash"], commit, capture["created_at"]),
     ).fetchone())
 
 
@@ -340,8 +368,16 @@ def review_gate(db: Path, phase: str, commit: str, new_findings: Iterable[str]) 
             if row["status"] not in TERMINAL_FINDINGS
         ]
         unresolved.extend(k for k in keys if not conn.execute("SELECT 1 FROM review_findings WHERE finding_key=?", (k,)).fetchone())
-        if not _completion_gate_exists(conn, phase, commit):
-            unresolved.append("completion-gate")
+        manifest = base._manifest_row(conn, phase)
+        if not manifest:
+            unresolved.append("manifest")
+        else:
+            try:
+                _require_capture(conn, phase, manifest["content_hash"])
+            except base.ContinuityError:
+                unresolved.append("capture-gate")
+            if not _completion_gate_exists(conn, phase, commit):
+                unresolved.append("completion-gate")
         unresolved = sorted(set(unresolved))
         status = "failed" if unresolved else "passed"
         cur = conn.execute(
@@ -362,14 +398,15 @@ def _require_final_gates(db: Path, phase: str, commit: str | None) -> None:
         manifest = base._manifest_row(conn, phase)
         if not manifest:
             return
-        _require_capture(conn, phase, manifest["content_hash"])
+        capture = _require_capture(conn, phase, manifest["content_hash"])
         if not _completion_gate_exists(conn, phase, commit):
-            raise base.ContinuityError("no passing completion gate for current manifest/commit")
+            raise base.ContinuityError("no current passing completion gate after latest capture")
         if not conn.execute(
-            "SELECT 1 FROM fresh_review_gate_runs WHERE phase_key=? AND commit_sha=? AND status='passed' ORDER BY id DESC LIMIT 1",
-            (phase, commit),
+            """SELECT 1 FROM fresh_review_gate_runs WHERE phase_key=? AND commit_sha=? AND status='passed'
+               AND created_at>=? ORDER BY id DESC LIMIT 1""",
+            (phase, commit, capture["created_at"]),
         ).fetchone():
-            raise base.ContinuityError("no passing fresh reviewer gate for current commit")
+            raise base.ContinuityError("no current passing fresh reviewer gate after latest capture")
 
 
 def phase(db: Path, key: str, title: str, status: str, commit: str | None) -> None:
