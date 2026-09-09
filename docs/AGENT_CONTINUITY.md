@@ -138,6 +138,16 @@ python scripts/continuity_v03.py review-gate phase-10 --commit <reviewed-commit>
 
 If review creates required work, update scope, rerun Scope Capture Gate, implement/reverify, rerun Completion Gate, then review again.
 
+### Durable-store finalization guard
+
+The repository keeps the older `scripts/continuity.py` for backward compatibility with historical v0.1/v0.2 state. v0.3 therefore does not rely only on callers choosing the new CLI. SQLite triggers activate for phases that contain v0.3 scope sources and reject `Phase` or `Task` transition to `completed` unless the current manifest has:
+
+- a passing Scope Capture Gate;
+- a passing Completion Gate; and
+- a passing Fresh Reviewer Gate bound to the same accepted commit as the Completion Gate.
+
+This makes the durable store the fail-closed boundary: invoking the legacy CLI directly cannot bypass v0.3 finalization policy.
+
 ## Execute mode
 
 For multi-part project work:
