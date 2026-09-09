@@ -56,6 +56,15 @@ disposition = "mapped"
 finding_status = "mapped"
 
 [[sources]]
+id = "FND-10-006"
+kind = "reviewer"
+summary = "Legacy continuity CLI can bypass the v0.3 Fresh Reviewer Gate"
+description = "Because scripts/continuity.py remains executable, direct legacy phase/task completion must be blocked at the durable-store layer for v0.3 phases."
+severity = "P0"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
 id = "SRC-10-002"
 kind = "user"
 summary = "Execute the KomaMori reliability fixes found by the latest reviewer pass"
@@ -133,11 +142,11 @@ evidence = ["test", "review"]
 id = "P10-R03"
 title = "Mandatory fresh reviewer gate for Execute mode"
 disposition = "required"
-source_refs = ["FND-10-005", "SRC-10-001"]
+source_refs = ["FND-10-005", "FND-10-006", "SRC-10-001"]
 
 [requirements.impacts]
 domains = ["execute-mode", "review-gate"]
-modules = ["scripts/continuity_v03.py", "docs/AGENT_CONTINUITY.md"]
+modules = ["scripts/continuity.py", "scripts/continuity_v03.py", ".agent-continuity/schema.sql", "docs/AGENT_CONTINUITY.md"]
 invariants = ["INV-CONT-002"]
 
 [[requirements.checks]]
@@ -148,6 +157,11 @@ evidence = ["test"]
 [[requirements.checks]]
 id = "P10-R03-C02"
 description = "Phase/task completion through the v0.3 runtime requires both completion and fresh reviewer gates for the accepted commit"
+evidence = ["test", "review"]
+
+[[requirements.checks]]
+id = "P10-R03-C03"
+description = "Legacy v0.2 CLI cannot bypass v0.3 finalization guards at the SQLite state-store layer"
 evidence = ["test", "review"]
 
 [[requirements]]
