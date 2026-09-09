@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -34,3 +36,60 @@ class ChapterRead(ORMModel):
     title: str
     number: float
     status: str
+
+
+class PageRead(ORMModel):
+    id: int
+    chapter_id: int
+    page_index: int
+    original_asset: str
+    clean_asset: str | None
+    width: int | None
+    height: int | None
+    processing_status: str
+
+
+class ChapterDetail(ChapterRead):
+    pages: list[PageRead]
+
+
+class SeriesDetail(SeriesRead):
+    chapters: list[ChapterRead]
+
+
+RegionType = Literal["dialogue", "thought", "narration", "caption", "sign", "sfx", "unknown"]
+
+
+class TextRegionCreate(BaseModel):
+    region_type: RegionType = "unknown"
+    geometry: list[list[float]] = Field(default_factory=list)
+    source_text: str = ""
+    ocr_confidence: float | None = Field(default=None, ge=0, le=1)
+    reading_order: int = Field(default=0, ge=0)
+    source_style: dict[str, Any] = Field(default_factory=dict)
+
+
+class TextRegionUpdate(BaseModel):
+    region_type: RegionType | None = None
+    geometry: list[list[float]] | None = None
+    source_text: str | None = None
+    ocr_confidence: float | None = Field(default=None, ge=0, le=1)
+    reading_order: int | None = Field(default=None, ge=0)
+    source_style: dict[str, Any] | None = None
+
+
+class TextRegionRead(ORMModel):
+    id: int
+    page_id: int
+    region_type: str
+    geometry: list[list[float]]
+    source_text: str
+    ocr_confidence: float | None
+    reading_order: int
+    mask_asset: str | None
+    source_style: dict[str, Any]
+
+
+class ImportResult(BaseModel):
+    chapter_id: int
+    pages_imported: int
