@@ -1,0 +1,74 @@
+manifest_version = 1
+id = "phase-7"
+project = "komamori"
+title = "Interactive region correction"
+
+[[requirements]]
+id = "P7-R01"
+title = "Region lifecycle API"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P7-R01-C01"
+description = "A false-positive text region can be deleted through the API and dependent localization rows are removed"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P7-R01-C02"
+description = "Deleting a cleanable region invalidates the page clean asset and removes its persisted mask"
+evidence = ["test"]
+
+[[requirements]]
+id = "P7-R02"
+title = "Region classification and order"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P7-R02-C01"
+description = "The web editor can change region type from unknown to a supported semantic type"
+evidence = ["build", "review"]
+
+[[requirements.checks]]
+id = "P7-R02-C02"
+description = "The web editor can edit reading order and persist it through the region API"
+evidence = ["build", "review"]
+
+[[requirements]]
+id = "P7-R03"
+title = "Interactive geometry correction"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P7-R03-C01"
+description = "A selected region can be dragged on the manga stage and the resulting geometry is persisted"
+evidence = ["build", "review"]
+
+[[requirements.checks]]
+id = "P7-R03-C02"
+description = "A selected region can be resized on the manga stage and the resulting geometry is persisted"
+evidence = ["build", "review"]
+
+[[requirements]]
+id = "P7-R04"
+title = "Interactive create and delete"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P7-R04-C01"
+description = "The workbench provides an add-region mode that draws a new unknown rectangular region on the current page"
+evidence = ["build", "review"]
+
+[[requirements.checks]]
+id = "P7-R04-C02"
+description = "The region editor can delete a false-positive region and clears the current selection after deletion"
+evidence = ["build", "review"]
+
+[[requirements]]
+id = "P7-R05"
+title = "Reader safety"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P7-R05-C01"
+description = "Reader mode does not render unknown or SFX localization overlays while workbench mode still exposes them for correction"
+evidence = ["build", "review"]
