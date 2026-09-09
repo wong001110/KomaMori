@@ -16,7 +16,7 @@ export function SeriesManagement({ series, busy, onSave, onDelete }: SeriesManag
   };
 
   return (
-    <form className="management-form" key={series.id} onSubmit={submit}>
+    <form className="management-form" key={`${series.id}:${series.title}:${series.source_language}`} onSubmit={submit}>
       <span className="kicker">Series settings</span>
       <div className="management-fields">
         <input name="title" defaultValue={series.title} aria-label="Series title" required />
@@ -45,7 +45,7 @@ export function ChapterManagement({ chapter, busy, onSave, onDelete }: ChapterMa
   };
 
   return (
-    <form className="management-form chapter-management" key={chapter.id} onSubmit={submit}>
+    <form className="management-form chapter-management" key={`${chapter.id}:${chapter.number}:${chapter.title}`} onSubmit={submit}>
       <span className="kicker">Chapter settings</span>
       <div className="management-fields chapter-fields">
         <input name="number" type="number" step="0.1" min="0" defaultValue={chapter.number} aria-label="Chapter number" required />
