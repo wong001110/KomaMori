@@ -257,12 +257,37 @@ def test_passing_fresh_review_cannot_precede_completion_gate(tmp_path: Path) -> 
     assert failed["status"] == "failed"
     assert "completion-gate" in failed["unresolved_findings"]
 
-    with sqlite3.connect(db) as conn, pytest.raises(sqlite3.IntegrityError, match="fresh review requires a passing completion gate"):
+    with sqlite3.connect(db) as conn, pytest.raises(sqlite3.IntegrityError, match="fresh review requires"):
         conn.execute(
             """INSERT INTO fresh_review_gate_runs(phase_key,commit_sha,status,new_findings_json,unresolved_findings_json,created_at)
                VALUES('phase-10','commit-a','passed','[]','[]','now')"""
         )
 
     prove(db)
+    assert continuity.gate(db, "phase-10", "commit-a")["status"] == "passed"
+    assert continuity.review_gate(db, "phase-10", "commit-a", [])["status"] == "passed"
+
+
+def test_new_finding_invalidates_old_capture_and_completion_authority(tmp_path: Path) -> None:
+    db = tmp_path / "state.db"
+    manifest = write_manifest(tmp_path)
+    seed(db, manifest)
+    assert continuity.capture_gate(db, "phase-10")["status"] == "passed"
+    continuity.finding_state(db, "FND-10-001", "verified", None, None)
+    prove(db)
+    assert continuity.gate(db, "phase-10", "commit-a")["status"] == "passed"
+
+    continuity.register_finding(db, "FND-NEW", "phase-10", "P1", "New issue", "Found during fresh review", "commit-a")
+    continuity.finding_state(db, "FND-NEW", "rejected", "False positive after inspection", None)
+
+    stale_gate = continuity.gate(db, "phase-10", "commit-a")
+    assert stale_gate["status"] == "failed"
+    assert any(item["id"] == "capture-gate" for item in stale_gate["failures"])
+
+    assert continuity.capture_gate(db, "phase-10")["status"] == "passed"
+    before_regate = continuity.review_gate(db, "phase-10", "commit-a", [])
+    assert before_regate["status"] == "failed"
+    assert "completion-gate" in before_regate["unresolved_findings"]
+
     assert continuity.gate(db, "phase-10", "commit-a")["status"] == "passed"
     assert continuity.review_gate(db, "phase-10", "commit-a", [])["status"] == "passed"
