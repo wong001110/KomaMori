@@ -93,3 +93,86 @@ class TextRegionRead(ORMModel):
 class ImportResult(BaseModel):
     chapter_id: int
     pages_imported: int
+
+
+class AnalyzePageResult(BaseModel):
+    page_id: int
+    regions_created: int
+
+
+class CleanPageResult(BaseModel):
+    page_id: int
+    clean_asset: str
+
+
+class LocalizationTermCreate(BaseModel):
+    locale: str = Field(min_length=2, max_length=32)
+    source: str = Field(min_length=1, max_length=300)
+    target: str = Field(min_length=1, max_length=300)
+    term_type: str = Field(default="term", max_length=32)
+    aliases: list[str] = Field(default_factory=list)
+    locked: bool = True
+    notes: str = ""
+
+
+class LocalizationTermRead(ORMModel):
+    id: int
+    series_id: int | None
+    locale: str
+    source: str
+    target: str
+    term_type: str
+    aliases: list[str]
+    locked: bool
+    notes: str
+
+
+class LocalizationUpsert(BaseModel):
+    text: str
+    status: Literal["draft", "needs-review", "approved"] = "draft"
+    layout: dict[str, Any] | None = None
+
+
+class LocalizationRead(ORMModel):
+    id: int
+    text_region_id: int
+    locale: str
+    text: str
+    status: str
+    source: str
+    quality_metadata: dict[str, Any]
+    layout: dict[str, Any]
+
+
+class LocalizeChapterRequest(BaseModel):
+    overwrite: bool = False
+    context_regions: int = Field(default=3, ge=0, le=12)
+
+
+class LocalizeChapterResult(BaseModel):
+    chapter_id: int
+    locale: str
+    created: int
+    reused: int
+    skipped: int
+
+
+class QAIssue(BaseModel):
+    code: str
+    severity: Literal["info", "warning", "error"]
+    page_id: int
+    region_id: int
+    localization_id: int | None = None
+    message: str
+
+
+class QAResult(BaseModel):
+    chapter_id: int
+    locale: str
+    issues: list[QAIssue]
+
+
+class ApprovalResult(BaseModel):
+    localization_id: int
+    status: str
+    remembered: bool

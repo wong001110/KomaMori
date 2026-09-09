@@ -95,6 +95,13 @@ class AssetStore:
         target.write_bytes(page.content)
         return relative.as_posix()
 
+    def writable_path(self, relative: str) -> Path:
+        target = (self.root / relative).resolve()
+        if target != self.root and self.root not in target.parents:
+            raise ValueError("Asset path escaped root")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        return target
+
     def resolve(self, relative: str) -> Path:
         target = (self.root / relative).resolve()
         if target != self.root and self.root not in target.parents:
