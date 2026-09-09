@@ -1,0 +1,12 @@
+.git
+.github
+.agent-continuity
+.pytest_cache
+__pycache__
+*.pyc
+.venv
+node_modules
+apps/web/dist
+data
+assets
+.env
