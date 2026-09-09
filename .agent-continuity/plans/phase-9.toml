@@ -33,6 +33,11 @@ id = "P9-R02-C02"
 description = "Deterministic QA enforces the locked target when a canonical term alias appears in source text"
 evidence = ["test"]
 
+[[requirements.checks]]
+id = "P9-R02-C03"
+description = "The Workbench terminology form can persist comma-separated aliases and shows configured aliases for review"
+evidence = ["build", "review"]
+
 [[requirements]]
 id = "P9-R03"
 title = "Browser end-to-end workflow"
