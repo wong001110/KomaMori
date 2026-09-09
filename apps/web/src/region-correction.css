@@ -1,0 +1,17 @@
+.manga-stage > img { pointer-events: none; user-select: none; }
+.manga-stage.draw-mode { cursor: crosshair; }
+.manga-stage.draw-mode .region-overlay { pointer-events: none; opacity: .72; }
+.region-overlay.interactive { touch-action: none; cursor: grab; }
+.region-overlay.interactive:active { cursor: grabbing; }
+.region-overlay.region-unknown { border-color: rgba(169, 112, 63, .85); background: rgba(255, 238, 213, .72); }
+.region-overlay.region-sfx { border-color: rgba(127, 94, 140, .8); background: rgba(241, 229, 247, .62); }
+.resize-handle { position: absolute; right: -4px; bottom: -4px; width: 13px; height: 13px; border: 2px solid #fff; border-radius: 4px; background: #526044; box-shadow: 0 1px 4px rgba(0,0,0,.25); cursor: nwse-resize; touch-action: none; }
+.region-draw-preview { position: absolute; z-index: 8; border: 2px dashed #536044; background: rgba(223,232,213,.28); pointer-events: none; }
+.workbench-toolbar .tool-active { background: #536044; color: white; }
+.region-structure-row { display: grid; grid-template-columns: minmax(0, 1fr) 100px; gap: 8px; }
+.classification-note { margin-top: -4px; padding: 7px 9px; border-radius: 9px; background: #fff0de; color: #8e664f; line-height: 1.4; }
+.editor-actions .danger { margin-left: auto; background: #f0ded8; color: #8c4034; }
+@media (max-width: 760px) {
+  .region-structure-row { grid-template-columns: 1fr; }
+  .resize-handle { width: 18px; height: 18px; }
+}
