@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .db import Base, engine
 from .routers.library import router as library_router
+from .routers.localization import router as localization_router
+from .routers.processing import router as processing_router
 from .schemas import HealthResponse
 
 
@@ -21,14 +23,10 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="KomaMori API", version="0.1.0", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=list(settings.cors_origins),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.include_router(library_router)
+app.include_router(processing_router)
+app.include_router(localization_router)
 
 
 @app.get("/api/health", response_model=HealthResponse)

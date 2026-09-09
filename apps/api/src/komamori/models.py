@@ -106,3 +106,17 @@ class LocalizationTerm(Base):
     aliases: Mapped[list[str]] = mapped_column(JSON, default=list)
     locked: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str] = mapped_column(Text, default="")
+
+
+class ApprovedTranslation(Base):
+    __tablename__ = "approved_translations"
+    __table_args__ = (UniqueConstraint("series_id", "locale", "source_text", name="uq_approved_series_locale_source"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    series_id: Mapped[int] = mapped_column(ForeignKey("series.id", ondelete="CASCADE"), index=True)
+    locale: Mapped[str] = mapped_column(String(32), index=True)
+    source_text: Mapped[str] = mapped_column(Text)
+    target_text: Mapped[str] = mapped_column(Text)
+    provenance: Mapped[str] = mapped_column(String(64), default="human-approved")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
