@@ -94,10 +94,7 @@ async def unpack_uploads(files: list[UploadFile]) -> list[ImportPage]:
                     if total_uncompressed > MAX_TOTAL_UPLOAD_BYTES:
                         raise HTTPException(status_code=413, detail="Archive uncompressed content is too large")
 
-                pages: list[ImportPage] = []
-                for info in entries:
-                    pages.append(_inspect_image(info.filename, archive.read(info)))
-                return pages
+                return [_inspect_image(info.filename, archive.read(info)) for info in entries]
         except zipfile.BadZipFile as exc:
             raise HTTPException(status_code=422, detail=f"Invalid CBZ/ZIP archive: {archive_name}") from exc
 
@@ -145,7 +142,15 @@ class AssetStore:
         )
         target = self._target(relative)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(page.content)
+        try:
+            target.write_bytes(page.content)
+        except Exception:
+            try:
+                if target.exists():
+                    target.unlink()
+            except OSError:
+                pass
+            raise
         return relative
 
     def writable_path(self, relative: str) -> Path:
@@ -179,7 +184,6 @@ class AssetStore:
             try:
                 self.delete(relative)
             except OSError:
-                # DB state is already committed. An orphan is safer than a dangling DB reference.
                 continue
 
     def delete_trees_best_effort(self, relatives: list[str | Path]) -> None:
