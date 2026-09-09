@@ -5,6 +5,7 @@ import "./styles.css";
 import "./region-correction.css";
 import "./library-lifecycle.css";
 import "./term-aliases.css";
+import "./page-recovery.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
