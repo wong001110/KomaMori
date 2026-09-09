@@ -62,14 +62,16 @@ rejected
 
 `unmapped` blocks the Scope Capture Gate. Silence is never an implicit defer.
 
+Captured source items and invariants are durable history. A later manifest may not make one disappear by omission: a mapped source must continue to map to an **active current Requirement**, and an invariant remains active until it is explicitly deferred or retired.
+
 ## Scope Capture Gate
 
 Before broad implementation:
 
 - every material source/finding has explicit durable disposition;
-- every mapped source points to one or more Requirement IDs;
+- every mapped source points to one or more active Requirement IDs;
 - every required Requirement has required observable Acceptance Checks;
-- every active invariant introduced by the phase is mapped to at least one required check;
+- every active invariant introduced by the phase is mapped to at least one required current check;
 - no required item exists only in chat/reviewer prose.
 
 Example:
@@ -79,6 +81,19 @@ python scripts/continuity_v03.py manifest-sync \
   .agent-continuity/plans/phase-10.toml --commit <scope-commit>
 python scripts/continuity_v03.py capture-gate phase-10
 ```
+
+## ReviewFinding lifecycle
+
+`ReviewFinding.status` is operational execution state, separate from the manifest's initial mapping declaration. An ordinary scope resync must not regress a finding from `verified` back to `mapped`.
+
+Typical lifecycle:
+
+```text
+open -> mapped -> fixed -> verified
+                    └-> deferred / waived / rejected / superseded
+```
+
+Terminal scope decisions require explicit reason where applicable. Reopening a verified finding is an intentional state transition, not a side effect of loading the same manifest again.
 
 ## Invariants and change impact
 
@@ -100,7 +115,7 @@ python scripts/continuity_v03.py impact phase-10 \
 
 ## Completion Gate
 
-Completion still requires every required acceptance check and declared evidence kind to be current for the accepted commit/workspace. It additionally requires a passing Scope Capture Gate for the current manifest hash and no stale impacted checks.
+Completion requires every required acceptance check and declared evidence kind to be current for the accepted commit/workspace. It additionally requires the **latest** Scope Capture Gate for the current manifest hash to be passing and no stale impacted checks.
 
 ```bash
 python scripts/continuity_v03.py gate phase-10 --commit <verified-commit>
@@ -108,9 +123,22 @@ python scripts/continuity_v03.py gate phase-10 --commit <verified-commit>
 
 A passing completion gate means **scope-complete**.
 
+Completion authority belongs to one capture generation. If later review introduces a new material source/finding or changes its scope disposition, v0.3 records a capture invalidation. Old Completion Gate success can no longer authorize finalization. The phase must run:
+
+```text
+new/changed finding
+→ Capture invalidated
+→ explicit disposition/mapping
+→ Scope Capture Gate again
+→ Completion Gate again
+→ Fresh Reviewer Gate again
+```
+
+Completion/review gates accepted for finalization must be newer than the latest successful recapture.
+
 ## Fresh Reviewer Gate
 
-Execute mode then performs a fresh review deliberately outside the checklist. It searches for:
+Execute mode performs a fresh review deliberately outside the checklist **after Completion Gate**. It searches for:
 
 - failure / rollback / recovery paths;
 - cross-store and data invariants;
@@ -130,21 +158,21 @@ python scripts/continuity_v03.py finding \
   "Description" --commit <reviewed-commit>
 ```
 
-The review gate fails while any material finding remains non-terminal:
+Registering a fresh finding invalidates the current capture generation. A passing Fresh Reviewer Gate cannot be recorded before a passing Completion Gate exists for the current manifest, same commit, and latest capture generation.
 
 ```bash
 python scripts/continuity_v03.py review-gate phase-10 --commit <reviewed-commit>
 ```
 
-If review creates required work, update scope, rerun Scope Capture Gate, implement/reverify, rerun Completion Gate, then review again.
+If review creates required work, update scope, recapture, implement/reverify, rerun Completion Gate, then review again.
 
 ### Durable-store finalization guard
 
-The repository keeps the older `scripts/continuity.py` for backward compatibility with historical v0.1/v0.2 state. v0.3 therefore does not rely only on callers choosing the new CLI. SQLite triggers activate for phases that contain v0.3 scope sources and reject `Phase` or `Task` transition to `completed` unless the current manifest has:
+The repository keeps the older `scripts/continuity.py` for backward compatibility with historical v0.1/v0.2 state. v0.3 therefore does not rely only on callers choosing the new CLI. SQLite triggers activate for phases that contain v0.3 scope sources and reject `Phase` or `Task` transition to `completed` unless the current capture generation has:
 
-- a passing Scope Capture Gate;
-- a passing Completion Gate; and
-- a passing Fresh Reviewer Gate bound to the same accepted commit as the Completion Gate.
+- latest Scope Capture Gate = passing;
+- a later passing Completion Gate; and
+- a still-later passing Fresh Reviewer Gate bound to the same accepted commit.
 
 This makes the durable store the fail-closed boundary: invoking the legacy CLI directly cannot bypass v0.3 finalization policy.
 
@@ -160,7 +188,8 @@ Inspect reality
 → verify + impact/stale reconciliation
 → Completion Gate
 → Fresh Reviewer Gate
-→ loop on findings until clear
+→ register new findings immediately
+→ loop Capture -> Completion -> Review until clear
 → merge/checkpoint
 → final reconcile/publish durable state
 ```
@@ -190,4 +219,5 @@ Agent Continuity v0.3 is successful only when a new session can recover:
 - which original sources/findings remain unresolved;
 - which mapped checks are incomplete or stale;
 - which invariants need re-verification;
+- which capture generation is authoritative;
 - whether completion and fresh-review gates are valid for the current commit.
