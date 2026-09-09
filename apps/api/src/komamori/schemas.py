@@ -57,7 +57,7 @@ class SeriesDetail(SeriesRead):
     chapters: list[ChapterRead]
 
 
-RegionType = Literal["dialogue", "thought", "narration", "caption", "sign", "sfx", "unknown"]
+RegionType = Literal["dialogue", "thought", "narration", "caption", "sign", "ui", "sfx", "unknown"]
 
 
 class TextRegionCreate(BaseModel):
