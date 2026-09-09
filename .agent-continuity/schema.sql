@@ -127,7 +127,6 @@ CREATE TABLE IF NOT EXISTS gate_runs (
   created_at TEXT NOT NULL
 );
 
--- v0.3: preserve intent before it is compressed into a scope manifest.
 CREATE TABLE IF NOT EXISTS scope_sources (
   source_key TEXT PRIMARY KEY,
   phase_key TEXT NOT NULL,
@@ -192,8 +191,6 @@ CREATE TABLE IF NOT EXISTS check_impacts (
   FOREIGN KEY(check_key) REFERENCES acceptance_checks(check_key) ON DELETE CASCADE
 );
 
--- Existing acceptance_checks cannot be ALTERed safely in-place to add a stale status,
--- so staleness is tracked orthogonally for backward-compatible upgrades.
 CREATE TABLE IF NOT EXISTS check_staleness (
   check_key TEXT PRIMARY KEY,
   stale INTEGER NOT NULL DEFAULT 1 CHECK(stale IN (0,1)),
@@ -221,6 +218,24 @@ CREATE TABLE IF NOT EXISTS fresh_review_gate_runs (
   unresolved_findings_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL
 );
+
+-- A review is meaningful only after the current captured scope has a passing
+-- completion gate for the same commit. Enforce ordering even for direct SQL callers.
+CREATE TRIGGER IF NOT EXISTS guard_v03_review_after_completion
+BEFORE INSERT ON fresh_review_gate_runs
+WHEN EXISTS (SELECT 1 FROM scope_sources s WHERE s.phase_key = NEW.phase_key AND s.active = 1)
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1
+    FROM scope_manifests sm
+    JOIN gate_runs g
+      ON g.phase_key = sm.phase_key
+     AND g.manifest_hash = sm.content_hash
+     AND g.commit_sha = NEW.commit_sha
+     AND g.status = 'passed'
+    WHERE sm.phase_key = NEW.phase_key
+  ) THEN RAISE(ABORT, 'v0.3 fresh review requires a passing completion gate for current manifest and commit') END;
+END;
 
 -- Fail closed at the durable-store layer so the legacy v0.2 CLI cannot bypass
 -- v0.3 capture/reviewer finalization rules. These triggers activate only for
