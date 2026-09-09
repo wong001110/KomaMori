@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, Chapter, ChapterDetail, Series, SeriesDetail } from "./api";
+import { ChapterManagement, SeriesManagement } from "./LibraryManagement";
 import { Reader } from "./Reader";
 import { Workbench } from "./Workbench";
 
@@ -72,8 +73,7 @@ export default function App() {
     setError(null);
     try {
       const created = await api.createSeries(String(form.get("title")), String(form.get("sourceLanguage")));
-      const next = await api.listSeries();
-      setSeries(next);
+      setSeries(await api.listSeries());
       setSelectedSeries(await api.getSeries(created.id));
       setSelectedChapter(null);
       event.currentTarget.reset();
@@ -91,6 +91,37 @@ export default function App() {
       setSelectedChapter(null);
     } catch (reason) {
       setError(String(reason));
+    }
+  };
+
+  const saveSeries = async (title: string, sourceLanguage: string) => {
+    if (!selectedSeries || !title || !sourceLanguage) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.updateSeries(selectedSeries.id, { title, source_language: sourceLanguage });
+      setSeries(await api.listSeries());
+      setSelectedSeries(await api.getSeries(selectedSeries.id));
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteSeries = async () => {
+    if (!selectedSeries || !window.confirm(`Delete series “${selectedSeries.title}” and all of its chapters/assets?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteSeries(selectedSeries.id);
+      setSeries(await api.listSeries());
+      setSelectedSeries(null);
+      setSelectedChapter(null);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -118,6 +149,36 @@ export default function App() {
       setSelectedChapter(await api.getChapter(chapter.id));
     } catch (reason) {
       setError(String(reason));
+    }
+  };
+
+  const saveChapter = async (title: string, number: number) => {
+    if (!selectedChapter || !selectedSeries || !title) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.updateChapter(selectedChapter.id, { title, number });
+      setSelectedChapter(await api.getChapter(selectedChapter.id));
+      setSelectedSeries(await api.getSeries(selectedSeries.id));
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteChapter = async () => {
+    if (!selectedChapter || !selectedSeries || !window.confirm(`Delete chapter #${selectedChapter.number} “${selectedChapter.title}” and its assets?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteChapter(selectedChapter.id);
+      setSelectedChapter(null);
+      setSelectedSeries(await api.getSeries(selectedSeries.id));
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -172,11 +233,7 @@ export default function App() {
           </form>
           <div className="item-list">
             {series.map((item) => (
-              <button
-                className={selectedSeries?.id === item.id ? "list-item active" : "list-item"}
-                key={item.id}
-                onClick={() => chooseSeries(item)}
-              >
+              <button className={selectedSeries?.id === item.id ? "list-item active" : "list-item"} key={item.id} onClick={() => chooseSeries(item)}>
                 <strong>{item.title}</strong><span>{item.source_language.toUpperCase()}</span>
               </button>
             ))}
@@ -192,6 +249,7 @@ export default function App() {
                 <div><span className="kicker">{selectedSeries.source_language}</span><h2>{selectedSeries.title}</h2></div>
                 <span>{selectedSeries.chapters.length} chapters</span>
               </div>
+              <SeriesManagement series={selectedSeries} busy={busy} onSave={saveSeries} onDelete={deleteSeries} />
               <form className="chapter-form" onSubmit={createChapter}>
                 <input name="number" type="number" step="0.1" min="0" placeholder="#" required />
                 <input name="title" placeholder="Chapter title" required />
@@ -199,11 +257,7 @@ export default function App() {
               </form>
               <div className="chapter-grid">
                 {selectedSeries.chapters.map((chapter) => (
-                  <button
-                    className={selectedChapter?.id === chapter.id ? "chapter-card active" : "chapter-card"}
-                    key={chapter.id}
-                    onClick={() => chooseChapter(chapter)}
-                  >
+                  <button className={selectedChapter?.id === chapter.id ? "chapter-card active" : "chapter-card"} key={chapter.id} onClick={() => chooseChapter(chapter)}>
                     <span>#{chapter.number}</span>
                     <strong>{chapter.title}</strong>
                     <small>{chapter.status}</small>
@@ -222,6 +276,7 @@ export default function App() {
               <div className="panel-heading compact">
                 <div><span className="kicker">Chapter {selectedChapter.number}</span><h2>{selectedChapter.title}</h2></div>
               </div>
+              <ChapterManagement chapter={selectedChapter} busy={busy} onSave={saveChapter} onDelete={deleteChapter} />
               {!selectedChapter.pages.length ? (
                 <form className="upload-box" onSubmit={importPages}>
                   <input name="pages" type="file" accept=".cbz,.zip,image/png,image/jpeg,image/webp" multiple required />
