@@ -21,6 +21,7 @@ export function Workbench({ chapterId, seriesId, initialLocale, onLocaleChange, 
   const [locales, setLocales] = useState<LocaleSummary[]>([]);
   const [pageId, setPageId] = useState<number | null>(null);
   const [regionId, setRegionId] = useState<number | null>(null);
+  const [drawMode, setDrawMode] = useState(false);
   const [issues, setIssues] = useState<QAIssue[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +35,7 @@ export function Workbench({ chapterId, seriesId, initialLocale, onLocaleChange, 
     setView(nextView);
     setTerms(nextTerms);
     setLocales(nextLocales);
-    const validPage = nextView.pages.find((page) => page.id === pageId) ?? nextView.pages[0] ?? null;
+    const validPage = nextView.pages.find((item) => item.id === pageId) ?? nextView.pages[0] ?? null;
     setPageId(validPage?.id ?? null);
     if (regionId && !validPage?.regions.some((region) => region.id === regionId)) setRegionId(null);
   };
@@ -87,7 +88,45 @@ export function Workbench({ chapterId, seriesId, initialLocale, onLocaleChange, 
     }
   };
 
-  const selectRegion = (region: RegionView) => setRegionId(region.id);
+  const selectRegion = (region: RegionView) => {
+    setDrawMode(false);
+    setRegionId(region.id);
+  };
+
+  const changeGeometry = async (region: RegionView, geometry: number[][]) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.updateRegion(region.id, { geometry });
+      await reload();
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createRegion = async (geometry: number[][]) => {
+    if (!page) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const nextOrder = Math.max(0, ...page.regions.map((region) => region.reading_order)) + 1;
+      const created = await api.createRegion(page.id, geometry, nextOrder, "unknown");
+      setRegionId(created.id);
+      setDrawMode(false);
+      await reload();
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const afterDelete = async () => {
+    setRegionId(null);
+    await reload();
+  };
 
   return (
     <main className="app-shell workbench-shell">
@@ -124,7 +163,10 @@ export function Workbench({ chapterId, seriesId, initialLocale, onLocaleChange, 
         <button onClick={() => run(() => api.cleanChapter(chapterId))} disabled={busy}>Clean pages</button>
         <button onClick={() => run(() => api.localizeChapter(chapterId, locale))} disabled={busy}>AI localize</button>
         <button onClick={runQA} disabled={busy}>Run QA</button>
-        <span className="toolbar-note">AI localize requires an OpenAI-compatible provider; manual editing always works.</span>
+        <button className={drawMode ? "tool-active" : ""} onClick={() => { setDrawMode((value) => !value); setRegionId(null); }} disabled={busy || !page}>
+          {drawMode ? "Cancel add" : "+ Add region"}
+        </button>
+        <span className="toolbar-note">Detected regions start as unknown. Classify them before automatic cleanup/localization.</span>
       </section>
 
       <section className="workbench-grid">
@@ -132,7 +174,7 @@ export function Workbench({ chapterId, seriesId, initialLocale, onLocaleChange, 
           <div className="section-title"><span>Pages</span><strong>{view?.pages.length ?? 0}</strong></div>
           <div className="page-buttons">
             {view?.pages.map((item) => (
-              <button key={item.id} className={item.id === page?.id ? "page-button active" : "page-button"} onClick={() => { setPageId(item.id); setRegionId(null); }}>
+              <button key={item.id} className={item.id === page?.id ? "page-button active" : "page-button"} onClick={() => { setPageId(item.id); setRegionId(null); setDrawMode(false); }}>
                 <span>{String(item.page_index).padStart(2, "0")}</span>
                 <small>{item.regions.length} regions</small>
               </button>
@@ -154,9 +196,17 @@ export function Workbench({ chapterId, seriesId, initialLocale, onLocaleChange, 
             <>
               <div className="canvas-meta">
                 <span>Page {page.page_index}</span>
-                <span>{page.clean_url ? "clean asset" : "original fallback"}</span>
+                <span>{drawMode ? "Draw a box to add an unknown region" : selectedRegion ? "Drag to move · handle to resize" : page.clean_url ? "clean asset" : "original fallback"}</span>
               </div>
-              <MangaStage page={page} interactive selectedRegionId={regionId} onSelect={selectRegion} />
+              <MangaStage
+                page={page}
+                interactive
+                selectedRegionId={regionId}
+                drawMode={drawMode}
+                onSelect={selectRegion}
+                onGeometryChange={changeGeometry}
+                onCreateRegion={createRegion}
+              />
             </>
           ) : <div className="large-placeholder">Import pages to begin.</div>}
         </section>
@@ -164,7 +214,7 @@ export function Workbench({ chapterId, seriesId, initialLocale, onLocaleChange, 
         <aside className="right-stack">
           <section className="side-card editor-card">
             <div className="section-title"><span>Region</span><strong>{selectedRegion ? `#${selectedRegion.reading_order}` : "—"}</strong></div>
-            {selectedRegion ? <RegionEditor region={selectedRegion} locale={locale} onChanged={reload} /> : <div className="small-placeholder">Select a text region on the page.</div>}
+            {selectedRegion ? <RegionEditor region={selectedRegion} locale={locale} onChanged={reload} onDeleted={afterDelete} /> : <div className="small-placeholder">{drawMode ? "Draw a rectangle on the page." : "Select a text region on the page."}</div>}
           </section>
 
           <section className="side-card term-card">
@@ -184,7 +234,7 @@ export function Workbench({ chapterId, seriesId, initialLocale, onLocaleChange, 
             {!issues.length ? <small>Run QA to surface deterministic issues.</small> : (
               <div className="issue-list">
                 {issues.map((issue, index) => (
-                  <button key={`${issue.code}-${issue.region_id}-${index}`} onClick={() => { setPageId(issue.page_id); setRegionId(issue.region_id); }} className={`issue ${issue.severity}`}>
+                  <button key={`${issue.code}-${issue.region_id}-${index}`} onClick={() => { setPageId(issue.page_id); setRegionId(issue.region_id); setDrawMode(false); }} className={`issue ${issue.severity}`}>
                     <strong>{issue.code}</strong><span>{issue.message}</span>
                   </button>
                 ))}
