@@ -48,6 +48,11 @@ id = "P6-R02-C03"
 description = "Changing source OCR text demotes affected localizations to needs-review"
 evidence = ["test"]
 
+[[requirements.checks]]
+id = "P6-R02-C04"
+description = "Adding a new cleanable region invalidates an existing page clean asset"
+evidence = ["test"]
+
 [[requirements]]
 id = "P6-R03"
 title = "Approved translation consistency"
