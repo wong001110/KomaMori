@@ -1,0 +1,17 @@
+.management-form { display: grid; gap: 8px; margin: -4px 0 18px; padding: 12px; border: 1px solid #e0d6c7; border-radius: 14px; background: #fbf8f2; }
+.management-fields { display: grid; grid-template-columns: minmax(0, 1fr) 90px; gap: 7px; }
+.chapter-fields { grid-template-columns: 82px minmax(0, 1fr); }
+.management-fields input { padding: 8px 9px; font-size: 12px; }
+.management-actions { display: flex; gap: 7px; }
+.management-actions button { padding: 8px 10px; border-radius: 10px; background: #536044; color: white; font-weight: 700; }
+.management-actions .danger { margin-left: auto; background: #f0ded8; color: #8c4034; }
+.readiness-badge { margin-top: 3px; padding: 3px 7px; border-radius: 999px; font-size: 9px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.readiness-badge.status-ready { background: #dfe8d5; color: #536044; }
+.readiness-badge.status-review { background: #eee1bd; color: #725d27; }
+.readiness-badge.status-in-progress { background: #e9d7ce; color: #815345; }
+.reader-readiness-note { width: min(980px, calc(100% - 24px)); margin: 14px auto -4px; display: flex; justify-content: space-between; gap: 16px; padding: 10px 12px; border: 1px solid #5a5148; border-radius: 11px; background: #3a3530; color: #ddd4c9; font-size: 11px; }
+.reader-readiness-note strong { color: #f0e8df; }
+@media (max-width: 760px) {
+  .management-fields, .chapter-fields { grid-template-columns: 1fr; }
+  .reader-readiness-note { display: grid; gap: 4px; }
+}
