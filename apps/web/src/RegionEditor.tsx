@@ -18,13 +18,21 @@ export function RegionEditor({ region, locale, onChanged, onDeleted }: RegionEdi
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  // Keep editor fields aligned with refreshed server state. Do not clear operation
+  // feedback here: save/approve call onChanged(), which refreshes these same props,
+  // and clearing the message during that refresh races with the success feedback.
   useEffect(() => {
     setSource(region.source_text);
     setTarget(region.localization?.text ?? "");
     setRegionType((region.region_type as RegionType) ?? "unknown");
     setReadingOrder(region.reading_order);
-    setMessage(null);
   }, [region.id, region.source_text, region.region_type, region.reading_order, region.localization?.text, locale]);
+
+  // A real selection/locale transition starts a new editing context, so old
+  // operation feedback should not leak into it.
+  useEffect(() => {
+    setMessage(null);
+  }, [region.id, locale]);
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
