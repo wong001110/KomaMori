@@ -1,0 +1,32 @@
+name: komamori
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    environment:
+      KOMAMORI_DATABASE_URL: sqlite:////app/data/komamori.db
+      KOMAMORI_ASSET_ROOT: /app/assets
+      KOMAMORI_CORS_ORIGINS: http://localhost:8787
+      KOMAMORI_OCR_PROVIDER: ${KOMAMORI_OCR_PROVIDER:-tesseract}
+      KOMAMORI_TESSERACT_LANG: ${KOMAMORI_TESSERACT_LANG:-jpn}
+      KOMAMORI_LLM_BASE_URL: ${KOMAMORI_LLM_BASE_URL:-}
+      KOMAMORI_LLM_API_KEY: ${KOMAMORI_LLM_API_KEY:-}
+      KOMAMORI_LLM_MODEL: ${KOMAMORI_LLM_MODEL:-}
+    volumes:
+      - ./data:/app/data
+      - ./assets:/app/assets
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    depends_on:
+      - api
+    ports:
+      - "8787:80"
+    restart: unless-stopped
