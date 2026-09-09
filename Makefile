@@ -1,4 +1,4 @@
-.PHONY: api web test continuity
+.PHONY: api web test continuity up down
 
 api:
 	PYTHONPATH=apps/api/src uvicorn komamori.main:app --reload --port 8000
@@ -11,3 +11,9 @@ test:
 
 continuity:
 	python scripts/continuity.py bootstrap
+
+up:
+	docker compose up --build
+
+down:
+	docker compose down
