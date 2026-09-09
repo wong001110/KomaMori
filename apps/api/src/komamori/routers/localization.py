@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from ..autofit import layout_payload
 from ..db import get_session
 from ..models import ApprovedTranslation, Chapter, Localization, LocalizationTerm, Page, Series, TextRegion
+from ..region_types import TRANSLATABLE_REGION_TYPES
 from ..schemas import ApprovalResult, LocalizationRead, LocalizationTermCreate, LocalizationTermRead, LocalizationUpsert, LocalizeChapterRequest, LocalizeChapterResult, QAIssue, QAResult
 from ..translation import TranslationProvider, TranslationRequest, get_translation_provider
 
@@ -59,11 +60,28 @@ def upsert_localization(region_id: int, locale: str, payload: LocalizationUpsert
     localization = session.scalar(select(Localization).where(Localization.text_region_id == region_id, Localization.locale == locale))
     computed_layout = payload.layout or layout_payload(payload.text, region.geometry)
     if localization is None:
-        localization = Localization(text_region_id=region_id, locale=locale, text=payload.text, status=payload.status, source="manual", layout=computed_layout)
+        effective_status = "needs-review" if payload.status == "approved" else payload.status
+        localization = Localization(
+            text_region_id=region_id,
+            locale=locale,
+            text=payload.text,
+            status=effective_status,
+            source="manual",
+            layout=computed_layout,
+        )
         session.add(localization)
     else:
+        text_changed = localization.text != payload.text
+        if text_changed:
+            effective_status = "needs-review"
+        elif payload.status == "approved" and localization.status != "approved":
+            # Approval is a state transition with side effects on approved-memory;
+            # it must go through the explicit approve endpoint.
+            effective_status = "needs-review"
+        else:
+            effective_status = payload.status
         localization.text = payload.text
-        localization.status = payload.status
+        localization.status = effective_status
         localization.source = "manual"
         localization.layout = computed_layout
     session.commit()
@@ -89,7 +107,7 @@ def localize_chapter(chapter_id: int, locale: str, payload: LocalizeChapterReque
     created = reused = skipped = 0
     history: list[str] = []
     for region, _page in rows:
-        if region.region_type == "sfx" or not region.source_text.strip():
+        if region.region_type not in TRANSLATABLE_REGION_TYPES or not region.source_text.strip():
             skipped += 1
             continue
         existing = session.scalar(select(Localization).where(Localization.text_region_id == region.id, Localization.locale == locale))
@@ -133,7 +151,7 @@ def qa_chapter(chapter_id: int, locale: str, session: Session = Depends(get_sess
     issues: list[QAIssue] = []
     rows = session.execute(select(TextRegion, Page).join(Page, TextRegion.page_id == Page.id).where(Page.chapter_id == chapter_id).order_by(Page.page_index, TextRegion.reading_order)).all()
     for region, page in rows:
-        if region.region_type == "sfx":
+        if region.region_type not in TRANSLATABLE_REGION_TYPES:
             continue
         loc = session.scalar(select(Localization).where(Localization.text_region_id == region.id, Localization.locale == locale))
         if loc is None or not loc.text.strip():
