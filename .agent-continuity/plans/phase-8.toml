@@ -1,0 +1,64 @@
+manifest_version = 1
+id = "phase-8"
+project = "komamori"
+title = "Application data lifecycle"
+
+[[requirements]]
+id = "P8-R01"
+title = "Versioned runtime database migrations"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P8-R01-C01"
+description = "Application startup runs a versioned migration runner instead of relying directly on create_all"
+evidence = ["test", "review"]
+
+[[requirements.checks]]
+id = "P8-R01-C02"
+description = "An existing KomaMori database can be adopted into the migration ledger without losing existing rows"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P8-R01-C03"
+description = "A fresh database is fully initialized and records the applied baseline migration"
+evidence = ["test"]
+
+[[requirements]]
+id = "P8-R02"
+title = "Series and chapter CRUD"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P8-R02-C01"
+description = "Series metadata can be updated and a series can be deleted through the API"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P8-R02-C02"
+description = "Chapter title/number can be updated and a chapter can be deleted through the API"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P8-R02-C03"
+description = "Deleting series/chapters removes their original and derived filesystem assets rather than leaving orphaned files"
+evidence = ["test", "review"]
+
+[[requirements.checks]]
+id = "P8-R02-C04"
+description = "The Library UI exposes edit/delete controls for the selected series and chapter"
+evidence = ["build", "review"]
+
+[[requirements]]
+id = "P8-R03"
+title = "Per-locale readiness"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P8-R03-C01"
+description = "Locale summary derives in-progress/review/ready status from translated and approved region counts"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P8-R03-C02"
+description = "Reader surfaces the selected locale readiness so partial localization is not presented as silently complete"
+evidence = ["build", "review"]
