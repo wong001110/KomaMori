@@ -74,6 +74,24 @@ disposition = "mapped"
 finding_status = "mapped"
 
 [[sources]]
+id = "FND-10-008"
+kind = "reviewer"
+summary = "Manifest resync can regress an already verified reviewer finding back to mapped"
+description = "ReviewFinding status is operational execution state and must survive an unchanged scope resync unless explicitly reopened."
+severity = "P1"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
+id = "FND-10-009"
+kind = "reviewer"
+summary = "A captured source can escape the gate if its mapped requirement is later removed"
+description = "Capture Gate must require a mapped source to point to an active current requirement; historical mappings to inactive requirements are not sufficient."
+severity = "P0"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
 id = "SRC-10-002"
 kind = "user"
 summary = "Execute the KomaMori reliability fixes found by the latest reviewer pass"
@@ -104,7 +122,7 @@ status = "active"
 id = "P10-R01"
 title = "Durable source and reviewer-finding capture"
 disposition = "required"
-source_refs = ["SRC-10-001", "FND-10-001", "FND-10-002"]
+source_refs = ["SRC-10-001", "FND-10-001", "FND-10-002", "FND-10-008", "FND-10-009"]
 
 [requirements.impacts]
 domains = ["scope-capture", "review-findings"]
@@ -124,6 +142,16 @@ evidence = ["test"]
 [[requirements.checks]]
 id = "P10-R01-C03"
 description = "Reviewer findings can be registered immediately and remain unresolved until an explicit terminal disposition"
+evidence = ["test", "review"]
+
+[[requirements.checks]]
+id = "P10-R01-C04"
+description = "A verified reviewer finding remains verified across an unchanged manifest resync unless explicitly reopened"
+evidence = ["test", "review"]
+
+[[requirements.checks]]
+id = "P10-R01-C05"
+description = "A mapped source whose only requirement becomes inactive causes Scope Capture Gate failure instead of relying on historical mapping"
 evidence = ["test", "review"]
 
 [[requirements]]
