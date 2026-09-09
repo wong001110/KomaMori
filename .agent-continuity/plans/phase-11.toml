@@ -13,8 +13,7 @@ origin_ref = "SRC-10-002 / current conversation"
 [[sources]]
 id = "FND-11-001"
 kind = "reviewer"
-summary = "Filesystem mutations can commit before database state, leaving dangling durable asset references on rollback"
-description = "Region edits/deletes, chapter/series deletion, re-analysis, masks and clean-page generation need commit-safe asset lifecycle semantics."
+summary = "Filesystem mutations can commit before database state and leave dangling durable asset references"
 severity = "P0"
 disposition = "mapped"
 finding_status = "mapped"
@@ -23,7 +22,6 @@ finding_status = "mapped"
 id = "FND-11-002"
 kind = "reviewer"
 summary = "Unresolved unknown regions can coexist with locale Ready"
-description = "Unknown regions should not count as translatable workload, but must block source review and Ready until explicitly classified or deleted."
 severity = "P0"
 disposition = "mapped"
 finding_status = "mapped"
@@ -31,8 +29,7 @@ finding_status = "mapped"
 [[sources]]
 id = "FND-11-003"
 kind = "reviewer"
-summary = "Empty approvals and blocking QA errors can coexist with Ready"
-description = "Approve must reject empty text and Ready must require translated=approved=total plus zero blocking deterministic QA errors."
+summary = "Empty approvals and blocking deterministic QA errors can coexist with Ready"
 severity = "P0"
 disposition = "mapped"
 finding_status = "mapped"
@@ -41,7 +38,6 @@ finding_status = "mapped"
 id = "FND-11-004"
 kind = "reviewer"
 summary = "Default self-host port binding exposes KomaMori beyond localhost without authentication"
-description = "Compose should bind the web app to localhost by default; wider exposure must be explicit."
 severity = "P1"
 disposition = "mapped"
 finding_status = "mapped"
@@ -49,8 +45,7 @@ finding_status = "mapped"
 [[sources]]
 id = "FND-11-005"
 kind = "reviewer"
-summary = "Page recovery lifecycle is missing"
-description = "A wrong imported page currently requires destructive chapter recreation; users need page replace, delete and reorder recovery paths with correct invalidation."
+summary = "Page replace/delete/reorder recovery lifecycle is missing"
 severity = "P1"
 disposition = "mapped"
 finding_status = "mapped"
@@ -58,8 +53,7 @@ finding_status = "mapped"
 [[sources]]
 id = "FND-11-006"
 kind = "reviewer"
-summary = "Terminology policy changes do not invalidate previously approved localization state"
-description = "Changing target/aliases/locked policy can leave stale approved translations and Ready state until manual QA."
+summary = "Terminology policy changes do not invalidate approved localization and reuse state"
 severity = "P1"
 disposition = "mapped"
 finding_status = "mapped"
@@ -67,8 +61,7 @@ finding_status = "mapped"
 [[sources]]
 id = "FND-11-007"
 kind = "reviewer"
-summary = "CBZ and direct upload limits can be bypassed before decompressed/aggregate resource validation"
-description = "Archive entries are read before uncompressed-size checks and direct uploads lack aggregate count/byte/pixel bounds."
+summary = "CBZ/direct upload limits can be bypassed before aggregate/decompressed resource validation"
 severity = "P1"
 disposition = "mapped"
 finding_status = "mapped"
@@ -77,7 +70,6 @@ finding_status = "mapped"
 id = "FND-11-008"
 kind = "reviewer"
 summary = "Application SQLite lacks WAL and busy timeout concurrency pragmas"
-description = "FastAPI concurrent writes can hit avoidable database-is-locked failures."
 severity = "P2"
 disposition = "mapped"
 finding_status = "mapped"
@@ -85,8 +77,7 @@ finding_status = "mapped"
 [[sources]]
 id = "FND-11-009"
 kind = "reviewer"
-summary = "Browser verification lacks negative release-invariant workflows"
-description = "E2E should prove unknown source review and blocking terminology QA cannot produce Ready."
+summary = "Browser verification lacks negative Ready/release invariant workflows"
 severity = "P2"
 disposition = "mapped"
 finding_status = "mapped"
@@ -97,7 +88,7 @@ kind = "reviewer"
 summary = "Frontend dependency resolution is not fully reproducible"
 severity = "P2"
 disposition = "deferred"
-reason = "The current connected GitHub workflow cannot reliably generate and validate a new npm lockfile from registry resolution. Keep this explicit for dependency-hardening rather than hand-author a lockfile."
+reason = "Do not hand-author an npm lockfile; generate and validate it in a dependency-hardening phase with registry tooling."
 destination = "dependency-hardening"
 
 [[sources]]
@@ -106,7 +97,7 @@ kind = "reviewer"
 summary = "OCR/LLM provider and prompt provenance is too thin for future model benchmarking"
 severity = "P2"
 disposition = "deferred"
-reason = "This is experiment/data-lineage infrastructure rather than the current integrity/release safety scope."
+reason = "Experiment/data-lineage infrastructure is outside the current integrity/release safety scope."
 destination = "experiment-observability"
 
 [[sources]]
@@ -115,21 +106,54 @@ kind = "reviewer"
 summary = "Chapter display number is modeled as float and cannot represent real manga numbering cleanly"
 severity = "P2"
 disposition = "deferred"
-reason = "Changing chapter identity/display/sort semantics is a product/schema redesign and is not required to make current lifecycle safe."
+reason = "Changing display identity and sort semantics is a product/schema redesign, not required for current reliability."
 destination = "data-model-v2"
 
 [[sources]]
 id = "FND-11-013"
 kind = "policy"
-summary = "Main branch does not enforce PR and required CI checks through repository branch protection"
+summary = "Main branch does not enforce PR and required CI checks through branch protection"
 severity = "P2"
 disposition = "deferred"
-reason = "The connected GitHub tool exposes branch-protection/ruleset reads but no administration/write action, so this repository-policy mutation cannot be safely executed from the current tool boundary."
+reason = "The connected GitHub boundary exposes protection reads but no administration/write action."
 destination = "repository-policy"
+
+[[sources]]
+id = "FND-11-014"
+kind = "reviewer"
+summary = "A writer can create a partial new asset and fail before its caller knows the path to clean"
+severity = "P1"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
+id = "FND-11-015"
+kind = "reviewer"
+summary = "Approved status can pollute reuse memory for unknown/SFX or deterministic-QA-invalid translations"
+severity = "P1"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
+id = "FND-11-016"
+kind = "reviewer"
+summary = "Project roadmap drifted behind merged Phase 10 and active Phase 11 state"
+severity = "P2"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
+id = "FND-11-017"
+kind = "reviewer"
+summary = "Commit-first best-effort cleanup can leave orphan assets after interruption"
+severity = "P2"
+disposition = "deferred"
+reason = "Orphans are the deliberate safe failure mode for this phase; add an audit/GC command separately rather than risk dangling DB references."
+destination = "asset-gc"
 
 [[invariants]]
 id = "INV-DATA-001"
-description = "A failed mutation must not leave committed database state referencing a required asset that was deleted before commit."
+description = "Failed mutations never leave durable DB references to required assets deleted before commit; partial new writes are cleaned when the writer fails."
 severity = "P0"
 status = "active"
 
@@ -141,25 +165,25 @@ status = "active"
 
 [[invariants]]
 id = "INV-READY-002"
-description = "Ready requires every translatable region to contain nonempty approved text and zero blocking deterministic QA errors."
+description = "Ready requires every translatable region to have nonempty approved text and zero blocking deterministic QA errors."
 severity = "P0"
 status = "active"
 
 [[invariants]]
 id = "INV-APPROVAL-001"
-description = "Empty localization cannot be approved and policy changes invalidate affected prior approvals/reuse memory."
+description = "Empty localization cannot be approved and only valid translatable approvals may populate reuse memory; policy changes invalidate affected approval/reuse state."
 severity = "P0"
 status = "active"
 
 [[invariants]]
 id = "INV-PAGE-001"
-description = "Page replacement/deletion/reorder cannot preserve derived or localization state that belongs to an obsolete original page identity/order."
+description = "Page replacement removes content-bound region/localization/derived state; deletion removes the page state; reordering preserves page identity while normalizing indexes safely."
 severity = "P1"
 status = "active"
 
 [[invariants]]
 id = "INV-UPLOAD-001"
-description = "Untrusted direct/archive uploads cannot bypass configured page-count, byte, uncompressed-size or pixel limits before large allocation."
+description = "Untrusted uploads cannot bypass page-count, byte, uncompressed-size or pixel limits before large allocation."
 severity = "P1"
 status = "active"
 
@@ -179,52 +203,52 @@ status = "active"
 id = "P11-R01"
 title = "Commit-safe asset mutation lifecycle"
 disposition = "required"
-source_refs = ["SRC-11-001", "FND-11-001"]
-
+source_refs = ["SRC-11-001", "FND-11-001", "FND-11-014"]
 [requirements.impacts]
 domains = ["asset-lifecycle", "transactions", "processing"]
 modules = ["apps/api/src/komamori/storage.py", "apps/api/src/komamori/routers/library.py", "apps/api/src/komamori/routers/processing.py"]
 invariants = ["INV-DATA-001"]
-
 [[requirements.checks]]
 id = "P11-R01-C01"
-description = "Region update/delete and chapter/series deletion commit database state before deleting previously referenced filesystem assets"
+description = "Region update/delete and chapter/series deletion commit DB state before deleting previously referenced assets"
 evidence = ["test", "review"]
-
 [[requirements.checks]]
 id = "P11-R01-C02"
-description = "replace=true analysis finishes OCR before destructive database replacement and a failed OCR leaves previous regions/derived assets intact"
+description = "replace analysis completes OCR before destructive replacement; failed OCR preserves old regions/derived assets"
 evidence = ["test", "review"]
-
 [[requirements.checks]]
 id = "P11-R01-C03"
-description = "New mask/clean assets are generated at unique paths, referenced only after successful commit, and obsolete assets are cleaned only after commit"
+description = "New mask/clean assets use unique paths and obsolete assets are deleted only after successful commit"
+evidence = ["test", "review"]
+[[requirements.checks]]
+id = "P11-R01-C04"
+description = "Original/mask/clean writers remove partial new files when generation itself fails"
 evidence = ["test", "review"]
 
 [[requirements]]
 id = "P11-R02"
-title = "Source-review and Ready correctness"
+title = "Source-review, approval and Ready correctness"
 disposition = "required"
-source_refs = ["FND-11-002", "FND-11-003", "FND-11-009"]
-
+source_refs = ["FND-11-002", "FND-11-003", "FND-11-009", "FND-11-015"]
 [requirements.impacts]
-domains = ["readiness", "qa", "approval"]
-modules = ["apps/api/src/komamori/routers/workbench.py", "apps/api/src/komamori/routers/localization.py", "apps/api/src/komamori/quality.py", "apps/web/src/Reader.tsx", "apps/web/e2e/workflow.spec.ts"]
+domains = ["readiness", "qa", "approval", "reuse-memory"]
+modules = ["apps/api/src/komamori/routers/workbench.py", "apps/api/src/komamori/routers/localization.py", "apps/api/src/komamori/quality.py", "apps/web/src/RegionEditor.tsx", "apps/web/src/Reader.tsx", "apps/web/e2e/workflow.spec.ts"]
 invariants = ["INV-READY-001", "INV-READY-002", "INV-APPROVAL-001"]
-
 [[requirements.checks]]
 id = "P11-R02-C01"
-description = "Any unresolved unknown region blocks Ready without inflating the translation denominator; explicitly classified SFX does not block"
+description = "Unknown blocks Ready without inflating translation denominator; explicitly classified SFX does not block"
 evidence = ["test", "e2e", "review"]
-
 [[requirements.checks]]
 id = "P11-R02-C02"
-description = "Approve endpoint rejects empty localization text and Ready requires translated == approved == total"
+description = "Approve rejects empty localization and Ready requires translated == approved == total"
 evidence = ["test"]
-
 [[requirements.checks]]
 id = "P11-R02-C03"
-description = "Blocking deterministic QA errors are computed by shared quality logic and prevent Ready while warnings alone do not"
+description = "Blocking deterministic QA errors prevent Ready while warnings alone do not"
+evidence = ["test", "e2e", "review"]
+[[requirements.checks]]
+id = "P11-R02-C04"
+description = "Unknown/SFX and blocking-QA-invalid approvals are not inserted into approved-translation reuse memory, and UI reports approval vs reusable status accurately"
 evidence = ["test", "e2e", "review"]
 
 [[requirements]]
@@ -232,30 +256,25 @@ id = "P11-R03"
 title = "Recoverable page lifecycle"
 disposition = "required"
 source_refs = ["FND-11-005"]
-
 [requirements.impacts]
 domains = ["page-lifecycle", "recovery"]
-modules = ["apps/api/src/komamori/routers/library.py", "apps/api/src/komamori/schemas.py", "apps/api/src/komamori/storage.py", "apps/web/src/App.tsx", "apps/web/src/api.ts"]
+modules = ["apps/api/src/komamori/routers/library.py", "apps/api/src/komamori/storage.py", "apps/web/src/App.tsx", "apps/web/src/api.ts", "apps/web/src/page-recovery.css"]
 invariants = ["INV-DATA-001", "INV-PAGE-001"]
-
 [[requirements.checks]]
 id = "P11-R03-C01"
-description = "A single page can be replaced using a new original asset path; old regions/localizations/masks/clean state are invalidated and old files are removed only after commit"
+description = "Single page replacement uses a new original path, invalidates old page content state, and cleans old files only after commit"
 evidence = ["test", "review"]
-
 [[requirements.checks]]
 id = "P11-R03-C02"
-description = "A page can be deleted and remaining page indexes are normalized without unique-index collisions or dangling assets"
+description = "Page deletion normalizes remaining indexes without unique-index collisions or dangling assets"
 evidence = ["test"]
-
 [[requirements.checks]]
 id = "P11-R03-C03"
-description = "Chapter pages can be reordered with exact page-set validation and stable normalized indexes"
+description = "Page reorder requires the exact chapter page set and assigns stable normalized indexes"
 evidence = ["test"]
-
 [[requirements.checks]]
 id = "P11-R03-C04"
-description = "Library UI exposes replace, delete and move/reorder recovery controls for imported pages"
+description = "Library UI exposes usable replace, delete and move/reorder controls"
 evidence = ["build", "review"]
 
 [[requirements]]
@@ -263,20 +282,17 @@ id = "P11-R04"
 title = "Terminology policy invalidation"
 disposition = "required"
 source_refs = ["FND-11-006"]
-
 [requirements.impacts]
 domains = ["terminology", "approval", "reuse-memory"]
 modules = ["apps/api/src/komamori/routers/localization.py", "apps/api/src/komamori/quality.py"]
 invariants = ["INV-APPROVAL-001", "INV-READY-002"]
-
 [[requirements.checks]]
 id = "P11-R04-C01"
-description = "Changing policy-relevant terminology fields conservatively demotes affected series/locale localizations to needs-review"
+description = "Policy-relevant terminology changes conservatively demote affected series/locale localizations to needs-review"
 evidence = ["test"]
-
 [[requirements.checks]]
 id = "P11-R04-C02"
-description = "Changing terminology policy clears affected approved-translation reuse memory so stale approved wording cannot be reused"
+description = "Terminology policy changes clear affected approved-translation reuse memory"
 evidence = ["test", "review"]
 
 [[requirements]]
@@ -284,25 +300,21 @@ id = "P11-R05"
 title = "Upload, SQLite and self-host runtime safety"
 disposition = "required"
 source_refs = ["FND-11-004", "FND-11-007", "FND-11-008"]
-
 [requirements.impacts]
 domains = ["uploads", "sqlite", "self-host-security"]
 modules = ["apps/api/src/komamori/storage.py", "apps/api/src/komamori/db.py", "compose.yaml"]
 invariants = ["INV-UPLOAD-001", "INV-SELFHOST-001", "INV-SQLITE-001"]
-
 [[requirements.checks]]
 id = "P11-R05-C01"
-description = "CBZ preflight validates entry count, individual/aggregate uncompressed bytes and image pixels before large archive allocation; direct uploads have count/aggregate limits"
+description = "Archive/direct uploads preflight count, per-page/aggregate bytes, uncompressed bytes and image pixels before unsafe allocation"
 evidence = ["test", "review"]
-
 [[requirements.checks]]
 id = "P11-R05-C02"
 description = "File-backed SQLite connections enable foreign_keys, WAL and busy_timeout"
 evidence = ["test", "review"]
-
 [[requirements.checks]]
 id = "P11-R05-C03"
-description = "Default Compose web port binding is localhost-only"
+description = "Default Compose web binding is localhost-only"
 evidence = ["container", "review"]
 
 [[requirements]]
@@ -310,23 +322,33 @@ id = "P11-R06"
 title = "Release-invariant verification"
 disposition = "required"
 source_refs = ["FND-11-009", "SRC-11-001"]
-
 [requirements.impacts]
 domains = ["release-verification", "e2e"]
 modules = ["apps/api/tests", "apps/web/e2e/workflow.spec.ts", ".github/workflows/ci.yml"]
 invariants = ["INV-DATA-001", "INV-READY-001", "INV-READY-002", "INV-APPROVAL-001", "INV-PAGE-001", "INV-UPLOAD-001", "INV-SELFHOST-001", "INV-SQLITE-001"]
-
 [[requirements.checks]]
 id = "P11-R06-C01"
-description = "Browser E2E proves an unresolved unknown region cannot present the locale as Ready"
+description = "Browser E2E proves unresolved unknown cannot present Ready"
 evidence = ["e2e"]
-
 [[requirements.checks]]
 id = "P11-R06-C02"
-description = "Browser E2E proves a blocking terminology QA error cannot present the locale as Ready"
+description = "Browser E2E proves blocking terminology QA cannot present Ready"
 evidence = ["e2e"]
-
 [[requirements.checks]]
 id = "P11-R06-C03"
-description = "Backend regression suite covers transaction rollback/recovery, page lifecycle, readiness/approval, policy invalidation, upload limits and SQLite pragmas"
+description = "Backend regression suite covers transaction recovery, writer cleanup, page lifecycle, readiness/approval, policy invalidation, upload limits and SQLite pragmas"
 evidence = ["test", "review"]
+
+[[requirements]]
+id = "P11-R07"
+title = "Project-state documentation reconciliation"
+disposition = "required"
+source_refs = ["FND-11-016"]
+[requirements.impacts]
+domains = ["project-state", "documentation"]
+modules = ["docs/ROADMAP.md"]
+invariants = []
+[[requirements.checks]]
+id = "P11-R07-C01"
+description = "ROADMAP records Phase 9 and 10 as completed, Phase 11 as active, and explicitly lists deferred integrity follow-ups"
+evidence = ["review"]
