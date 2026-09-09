@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..models import Chapter, Page, TextRegion
-from ..processing import OCRProvider, analyze_page, generate_clean_page, get_ocr_provider
+from ..processing import OCRProvider, analyze_page, generate_clean_page, generate_text_mask, get_ocr_provider
+from ..region_types import CLEANABLE_REGION_TYPES
 from ..schemas import AnalyzePageResult, BatchAnalyzeResult, BatchCleanResult, CleanPageResult
 from ..storage import AssetStore, get_asset_store
 
@@ -18,6 +19,15 @@ def _page_or_404(session: Session, page_id: int) -> Page:
     if page is None:
         raise HTTPException(status_code=404, detail="Page not found")
     return page
+
+
+def _invalidate_page_derived(page: Page, existing: list[TextRegion], assets: AssetStore) -> None:
+    assets.delete(page.clean_asset)
+    page.clean_asset = None
+    page.processing_status = "structured"
+    for region in existing:
+        assets.delete(region.mask_asset)
+        region.mask_asset = None
 
 
 def _analyze_page(
@@ -32,6 +42,7 @@ def _analyze_page(
     if existing and not replace:
         return 0, True
     if existing:
+        _invalidate_page_derived(page, existing, assets)
         session.execute(delete(TextRegion).where(TextRegion.page_id == page.id))
         session.flush()
 
@@ -40,7 +51,7 @@ def _analyze_page(
         session.add(
             TextRegion(
                 page_id=page.id,
-                region_type="dialogue",
+                region_type="unknown",
                 geometry=result.geometry,
                 source_text=result.text,
                 ocr_confidence=result.confidence,
@@ -51,19 +62,36 @@ def _analyze_page(
     return len(results), False
 
 
+def _mask_for_region(page: Page, region: TextRegion, assets: AssetStore) -> str:
+    if region.mask_asset and assets.exists(region.mask_asset):
+        return region.mask_asset
+    relative = f"derived/masks/{page.chapter_id}/{page.id}/{region.id}.png"
+    generate_text_mask(
+        assets.resolve(page.original_asset),
+        region.geometry,
+        assets.writable_path(relative),
+    )
+    region.mask_asset = relative
+    return relative
+
+
 def _clean_page(page: Page, *, session: Session, assets: AssetStore) -> bool:
     regions = list(
         session.scalars(
-            select(TextRegion).where(TextRegion.page_id == page.id, TextRegion.region_type != "sfx")
+            select(TextRegion).where(
+                TextRegion.page_id == page.id,
+                TextRegion.region_type.in_(tuple(CLEANABLE_REGION_TYPES)),
+            )
         )
     )
     if not regions:
         return False
 
+    masks = [_mask_for_region(page, region, assets) for region in regions]
     relative = f"derived/clean/{page.chapter_id}/{page.id}.png"
     generate_clean_page(
         assets.resolve(page.original_asset),
-        [region.geometry for region in regions],
+        [assets.resolve(mask) for mask in masks],
         assets.writable_path(relative),
     )
     page.clean_asset = relative
@@ -125,7 +153,7 @@ def clean_page_endpoint(
 ) -> CleanPageResult:
     page = _page_or_404(session, page_id)
     if not _clean_page(page, session=session, assets=assets):
-        raise HTTPException(status_code=409, detail="Page has no cleanable text regions")
+        raise HTTPException(status_code=409, detail="Page has no explicitly cleanable text regions")
     session.commit()
     assert page.clean_asset is not None
     return CleanPageResult(page_id=page.id, clean_asset=page.clean_asset)
