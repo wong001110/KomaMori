@@ -49,7 +49,6 @@ def test_batch_analyze_and_clean(client: TestClient) -> None:
     assert analyzed.json()["pages_analyzed"] == 1
     assert analyzed.json()["regions_created"] >= 1
 
-    # Detection is deliberately unclassified; classification authorizes cleanup.
     regions = client.get(f"/api/pages/{page_id}/regions").json()
     assert all(region["region_type"] == "unknown" for region in regions)
     for region in regions:
@@ -80,6 +79,25 @@ def test_shared_source_supports_two_locale_views(client: TestClient) -> None:
         json={"text": "你好！", "status": "needs-review"},
     )
     assert en.status_code == zh.status_code == 200
+
+    client.post(
+        f"/api/pages/{page_id}/regions",
+        json={
+            "region_type": "unknown",
+            "geometry": [[10, 10], [40, 10], [40, 40], [10, 40]],
+            "source_text": "unclassified",
+            "reading_order": 2,
+        },
+    )
+    client.post(
+        f"/api/pages/{page_id}/regions",
+        json={
+            "region_type": "sfx",
+            "geometry": [[50, 50], [70, 50], [70, 80], [50, 80]],
+            "source_text": "ドン",
+            "reading_order": 3,
+        },
+    )
 
     en_view = client.get(f"/api/chapters/{chapter_id}/view/en").json()
     zh_view = client.get(f"/api/chapters/{chapter_id}/view/zh-TW").json()
