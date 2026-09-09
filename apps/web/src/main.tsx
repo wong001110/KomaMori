@@ -4,6 +4,7 @@ import App from "./App";
 import "./styles.css";
 import "./region-correction.css";
 import "./library-lifecycle.css";
+import "./term-aliases.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
