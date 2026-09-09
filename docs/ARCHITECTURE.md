@@ -1,198 +1,97 @@
 # KomaMori Architecture
 
-## 1. Architectural goal
+## 1. Current architectural goal
 
-KomaMori should begin as a **modular web application with Python-native processing**, not as a collection of services.
+KomaMori is an **experimental modular monolith** for self-hosted manga localization and reading. The MVP intentionally keeps product/data orchestration, OCR/CV processing, translation behavior, review, and reader APIs inside one Python application rather than splitting them into services prematurely.
 
-The project has three materially different workload types:
+The implemented runtime has four application concerns:
 
-1. interactive web editing and reading
-2. structured application/data management
-3. compute-heavy OCR, CV, image processing, and model inference
+1. Library / structured manga source
+2. Content processing
+3. Localization / review
+4. Web workbench / reader
 
-Those boundaries justify modules and background work, but not early microservices.
-
-## 2. Initial shape
+## 2. Implemented self-host topology
 
 ```text
-┌────────────────────────────────────┐
-│            Web Application         │
-│   Library / Reader / Editor / QA   │
-│        React / Next.js             │
-└─────────────────┬──────────────────┘
-                  │
-                  ▼
-┌────────────────────────────────────┐
-│          Python Application        │
-│              FastAPI               │
-│                                    │
-│ projects / chapters / pages        │
-│ localization / review / render     │
-└──────────────┬───────────┬─────────┘
-               │           │
-               ▼           ▼
-       structured data   file assets
-       SQLite/Postgres   local/S3-like
-               │
-               ▼
-        background processing
-               │
-        ┌──────┼────────────┐
-        ▼      ▼            ▼
-       OCR    CV/Image     LLM/VLM
+Browser
+  │
+  ▼
+Nginx container
+  ├── static React/Vite production build
+  └── /api/* proxy
+          │
+          ▼
+       FastAPI
+          │
+     ┌────┴───────────────┐
+     ▼                    ▼
+ SQLite              local assets
+ structured data     original / derived
+     │                    │
+     └────────┬───────────┘
+              ▼
+      Python processing
+      ├── OpenCV
+      ├── Tesseract / optional MangaOCR
+      └── OpenAI-compatible LLM provider
 ```
 
-For a single-user local setup, SQLite + local filesystem is sufficient. PostgreSQL/object storage can be introduced when multi-user or server deployment actually requires them.
+Docker Compose exposes the web app on port `8787`; the API is internal to the Compose network and is reached through Nginx `/api` proxying. `./data` and `./assets` are bind-mounted for persistence.
 
-## 3. Core application modules
+For native development, Vite runs separately and proxies `/api` to FastAPI on port `8000`.
 
-Keep the mental model small.
+## 3. Technology choices at MVP
 
-### Content Processing
+| Concern | Implemented choice |
+| --- | --- |
+| Web UI | React 19 + Vite + TypeScript |
+| Visual editor/reader | structured HTML/CSS overlays |
+| API | FastAPI |
+| ORM | SQLAlchemy |
+| Initial database | SQLite |
+| Assets | local filesystem |
+| Archive import | Python ZIP/CBZ parsing |
+| Image inspection | Pillow |
+| Detection baseline | OpenCV heuristic |
+| OCR baseline | Tesseract Japanese |
+| Optional OCR | MangaOCR provider |
+| Cleanup baseline | OpenCV Telea inpainting |
+| Translation | OpenAI-compatible provider abstraction |
+| QA | deterministic application checks |
+| Deployment | Docker Compose + Nginx |
 
-Responsible for converting raw manga pages into structured source data.
+Canvas/Konva, PostgreSQL, object storage, neural inpainting, background queues, and durable workflow orchestration are **not** MVP dependencies.
 
-Includes:
+## 4. Core source model
 
-- import / archive parsing
-- page metadata
-- text-region detection
-- OCR
-- reading order
-- text masks
-- clean-page generation
-
-### Localization
-
-Responsible for target-language data and translation behavior.
-
-Includes:
-
-- translation generation
-- nearby context assembly
-- localization store lookups
-- terminology constraints
-- approved translation reuse
-- lightweight QA
-
-### Editor / Rendering
-
-Responsible for turning structured localization into an editable visual result.
-
-Includes:
-
-- per-locale layout
-- auto-fit
-- manual text editing
-- region editing
-- render generation
-- invalidation / re-rendering
-
-### Library / Reader
-
-Responsible for presenting processed content as a usable manga collection.
-
-Includes:
-
-- series / chapter browsing
-- locale availability
-- reading mode
-- original vs translated view
-- cached rendered pages
-
-These are application modules, not separate deployed services by default.
-
-## 4. Core data model
-
-The initial schema should optimize for a stable source representation and replaceable derived assets.
+The most important architectural decision is that a translated manga page is not the source of truth.
 
 ```text
 Series
 └── Chapter
     └── Page
-        ├── OriginalAsset
-        ├── CleanAsset?              derived
+        ├── originalAsset       immutable
+        ├── cleanAsset?         derived
         └── TextRegion[]
-            ├── geometry
             ├── type
+            ├── geometry
             ├── sourceText
-            ├── OCR metadata
+            ├── OCR confidence?
             ├── readingOrder
-            ├── mask
+            ├── sourceStyle
             └── Localization[]
                 ├── locale
                 ├── text
                 ├── status
-                ├── provenance
+                ├── source/provenance
+                ├── qualityMetadata
                 └── layout
 ```
 
-### Series
+`TextRegion`, not `Bubble`, is the root text abstraction because manga also contains narration, captions, signs, thoughts, and SFX.
 
-Suggested fields:
-
-```text
-id
-title
-sourceLanguage
-metadata
-createdAt
-updatedAt
-```
-
-### Chapter
-
-```text
-id
-seriesId
-title
-number
-status
-pageCount
-createdAt
-updatedAt
-```
-
-Possible status values initially:
-
-```text
-raw
-processing
-review
-ready
-```
-
-### Page
-
-```text
-id
-chapterId
-index
-originalAssetId
-cleanAssetId?
-width
-height
-processingStatus
-```
-
-### TextRegion
-
-Use this instead of making `Bubble` the root abstraction.
-
-```text
-id
-pageId
-type
-polygon / geometry
-sourceText
-oCRConfidence?
-readingOrder
-maskAssetId?
-sourceStyle?       optional
-balloonId?         optional
-```
-
-Possible `type` values can begin small:
+Supported region types currently include:
 
 ```text
 dialogue
@@ -204,263 +103,248 @@ sfx
 unknown
 ```
 
-Do not overfit the enum before real examples are processed.
+SFX is represented but skipped by the automatic localization/cleanup MVP path.
+
+## 5. Original and derived assets
+
+Original imported pages are immutable unless a future explicit replace operation is introduced.
+
+Derived data includes:
+
+- OCR text
+- TextRegion geometry
+- clean pages
+- translations
+- layout metadata
+- future render caches
+
+The current reader displays either:
+
+```text
+original page
+```
+
+or:
+
+```text
+clean page (when available)
++ locale-specific structured text overlays
+```
+
+There is no pre-rendered localized page cache yet.
+
+## 6. Application modules
+
+### Library
+
+Owns:
+
+- Series / Chapter / Page records
+- image and CBZ/ZIP import
+- immutable original assets
+- manual TextRegion CRUD API
+
+### Processing
+
+Owns:
+
+- chapter/page text-region analysis
+- OCR provider selection
+- reading-order baseline
+- clean-page generation
+
+The MVP detector is a conventional OpenCV baseline. The architecture allows replacing detection/OCR without changing the structured source model.
 
 ### Localization
 
-```text
-id
-textRegionId
-locale
-text
-status
-source
-qualityMetadata?
-layout
-updatedAt
-```
+Owns:
 
-Possible `source` values:
+- per-locale translations
+- locked terminology
+- nearby-dialogue context
+- LLM provider calls
+- exact approved-translation reuse
+- heuristic auto-fit
+- deterministic QA
+- approval state
 
-```text
-machine
-manual
-approved-memory
-```
+### Workbench
 
-Possible `status` values:
+Owns read-oriented views for the web application:
 
-```text
-draft
-needs-review
-approved
-```
+- one chapter represented for a selected locale
+- locale progress summaries
+- shared page/region identity across locales
 
-### Layout
+The web UI uses the same workbench representation for editing and reading rather than maintaining independent translated-page state.
 
-Layout is per localization.
+## 7. Localization store
 
-```text
-fontFamily
-fontSize
-lineHeight
-letterSpacing
-alignment
-rotation
-lineBreaks / fittedLines
-manualOverride
-```
+The MVP deliberately does not implement separate enterprise CAT services.
 
-Keep this replaceable. Auto-layout should be able to regenerate values unless `manualOverride` is set.
-
-## 5. Localization Store
-
-Do not implement five separate CAT subsystems initially. A practical localization store can cover the durable decisions KomaMori needs.
-
-Example concepts:
+Durable localization concepts are:
 
 ```text
 LocalizationTerm
-├ source
-├ target
-├ locale
-├ type
-├ aliases
-├ locked
-└ notes
+├── source
+├── target
+├── locale
+├── type
+├── aliases
+├── locked
+└── notes
 
 ApprovedTranslation
-├ sourceText
-├ targetText
-├ locale
-├ seriesId / project scope
-└ provenance
-
-LocalizationRule
-├ scope
-├ key
-├ value
-└ notes
+├── seriesId
+├── locale
+├── sourceText
+├── targetText
+└── provenance
 ```
 
-This supports the useful parts of termbases, glossaries, translation memory, and project style decisions without committing to enterprise CAT complexity.
+This captures the useful parts of a glossary/termbase and exact approved translation reuse without creating unnecessary subsystem boundaries.
 
-## 6. Processing graph
+Stable translation decisions are persisted; dynamic interpretation is not.
 
-The workflow should be modeled conceptually as a DAG rather than one rigid sequence.
+For example:
+
+```text
+Black Knight as a locked title  → persist
+approved translation of a line → persist
+current character emotion       → infer when useful
+sarcastic tone in one panel     → infer when useful
+```
+
+## 8. Processing graph
+
+Conceptually the source pipeline is a DAG:
 
 ```text
 Import
   ↓
-Page extraction
+Page structure
   ↓
-Text-region detection
-  ↓
-OCR / reading order
+Text detection + OCR
   │
   ├───────────────┐
   ▼               ▼
-Mask generation   Localization
-  ↓               ↓
-Inpainting        Translation / QA
+Clean page     Localization
   │               │
   └───────┬───────┘
           ▼
-    Per-locale layout
+    locale layout
           ↓
-        Review
+     deterministic QA
           ↓
-        Render
+       human review
           ↓
-        Reader
+        reader
 ```
 
-Once source regions are known, localization and clean-page generation can proceed independently.
+Once TextRegions exist, clean-page generation and target-language localization are independent branches.
 
-## 7. Derived asset rules
+## 9. Translation execution
 
-These should never replace the original source:
-
-- OCR text
-- masks
-- clean pages
-- translated text
-- layouts
-- rendered pages
-
-The original import is immutable unless the user explicitly replaces it.
-
-A rendered page is a cache/output of:
-
-```text
-clean page + locale text + locale layout
-```
-
-Changing one localization should invalidate only the affected page/locale render.
-
-## 8. Translation execution
-
-Baseline translation input:
+For each normal text region, the baseline LLM request receives:
 
 ```text
 current source text
-+ nearby dialogue
-+ fixed terminology
-+ approved prior translations when relevant
+source language
+selected target locale
+nearby previous source dialogue
+locked terms present in the source
 ```
 
-Optional visual escalation:
+Before calling the provider, KomaMori checks for an exact approved translation in the current series/locale and reuses it when possible.
+
+The provider interface is intentionally OpenAI-compatible rather than bound to one model vendor.
+
+No dedicated emotion or character-voice service exists. If visual/tone context is investigated later, it should first be tested as a general LLM/VLM input against the simpler baseline.
+
+## 10. QA and auto-fit
+
+The MVP prefers deterministic QA whenever possible:
 
 ```text
-If text-only translation is ambiguous or explicitly requested:
-    include panel/page crop in a VLM call
+missing translation?
+locked term violated?
+known OCR confidence too low?
+layout marked poor-fit?
 ```
 
-Do not run a VLM for every region by default unless benchmarking shows the quality/cost tradeoff is worthwhile.
-
-## 9. QA model
-
-Prefer cheap deterministic checks first:
+Current auto-fit is heuristic:
 
 ```text
-OCR confidence too low?
-source region has no translation?
-locked terminology violated?
-layout overflow?
-font size below threshold?
+region bounding box
+↓
+CJK / whitespace-aware wrapping
+↓
+font-size search
+↓
+fit / poor-fit
+↓
+rough recommended max length
 ```
 
-Only semantic questions should normally require an LLM review, for example:
+It does not yet perform real font measurement or polygon-aware balloon fitting. A future translation/layout loop may use the `poor-fit` result to request a shorter equivalent translation and re-run layout.
 
-- mistranslation
-- lost nuance
-- context contradiction
-- unnatural phrasing
+## 11. Processing execution model
 
-This review does not need to be a separate agent architecture; it can be one structured model call when needed.
+MVP processing endpoints are synchronous. This is deliberate scope control, not the desired end state for large chapters.
 
-## 10. Auto-fit
-
-Initial auto-fit can be conventional layout logic:
+Current:
 
 ```text
-region / balloon safe area
+HTTP request
 ↓
-try candidate line breaks
+OCR / clean / translate work
 ↓
-measure text
-↓
-search font size
-↓
-score fit
-↓
-best acceptable layout
+response
 ```
 
-If no acceptable layout exists, return a constraint such as:
+Introduce a background queue only when real chapter workloads make synchronous execution materially harmful. A later worker design should add:
+
+- persisted job state
+- per-page/chapter progress
+- retry boundaries
+- SSE/polling UI
+
+Temporal/distributed workflow infrastructure remains unjustified until the application develops long-lived, multi-worker, pause/resume workflow requirements.
+
+## 12. Self-host persistence
+
+The Compose MVP maps:
 
 ```text
-poor-fit
-recommended target length ≤ N
+./data   → /app/data
+./assets → /app/assets
 ```
 
-The translation layer may then request a shorter equivalent while preserving meaning and locked terminology.
+SQLite stores structured records; binary manga data stays on the filesystem.
 
-## 11. Background execution
+A future multi-user/server version may replace these with PostgreSQL and object storage without changing the core Page/TextRegion/Localization abstraction.
 
-Do not begin with Temporal or distributed workflow infrastructure.
+## 13. Agent Continuity is separate from runtime state
 
-Start with the simplest mechanism that allows long-running work not to block HTTP requests:
+KomaMori's runtime SQLite database is **not** the Agent Continuity database.
+
+The development experiment uses a separate gitignored SQLite state store:
 
 ```text
-API request
-↓
-create processing task
-↓
-background worker
-↓
-progress stored
-↓
-UI polls or receives SSE updates
+.agent-continuity/state.db
 ```
 
-A lightweight Python job queue or worker process is enough initially.
+with an external durable snapshot between ephemeral cloud sessions. GitHub remains the source of truth for code/PR/commit history; continuity SQLite stores current phase/task/checkpoint/evidence metadata.
 
-Introduce durable workflow orchestration only if the project actually develops requirements such as:
+See [`AGENT_CONTINUITY.md`](AGENT_CONTINUITY.md).
 
-- long human pause/resume steps
-- complicated cross-worker dependencies
-- distributed workers
-- resilient workflow replay
-- multi-hour/multi-day stateful execution
+## 14. Architecture guardrails
 
-## 12. Initial technology direction
-
-This is a direction, not a permanent lock-in.
-
-| Concern | Initial choice |
-| --- | --- |
-| Web UI | React / Next.js |
-| Interactive page editor | Canvas-based editor, likely Konva or equivalent |
-| API | FastAPI |
-| Initial DB | SQLite |
-| Multi-user DB later | PostgreSQL |
-| Asset storage | Local filesystem initially |
-| OCR runtime | Python |
-| CV/image processing | OpenCV / PyTorch ecosystem |
-| Japanese manga OCR | Evaluate MangaOCR and alternatives |
-| General multilingual OCR | Evaluate PaddleOCR and alternatives |
-| Inpainting | conventional + neural routing based on region complexity |
-| Translation | provider abstraction over general LLM/VLM APIs/local models |
-| Progress | SSE first; WebSocket only if interaction requires it |
-
-## 13. Architecture guardrails
-
-Before adding a new subsystem, answer at least one of these:
+Before adding a subsystem, ask:
 
 - Does it remove a measured failure mode?
-- Does it materially simplify the existing code?
-- Does it support a real experiment that cannot be performed with current boundaries?
-- Does it handle a workload with genuinely different lifecycle or deployment requirements?
+- Does it materially simplify existing code?
+- Does it enable an experiment impossible with current boundaries?
+- Does it have a genuinely different deployment/lifecycle requirement?
 
-If none apply, keep it inside the existing module.
+If none apply, keep the behavior in the modular application or leave it as an experiment.
