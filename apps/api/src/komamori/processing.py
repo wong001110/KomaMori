@@ -111,23 +111,41 @@ def _polygon_mask(shape: tuple[int, int], geometry: list[list[float]]) -> np.nda
     if len(geometry) < 3:
         return mask
     points = np.array([[int(p[0]), int(p[1])] for p in geometry if len(p) >= 2], dtype=np.int32)
+    if len(points) < 3:
+        return mask
     cv2.fillPoly(mask, [points], 255)
     return mask
 
 
-def generate_clean_page(image_path: Path, regions: list[list[list[float]]], output_path: Path) -> Path:
+def generate_text_mask(image_path: Path, geometry: list[list[float]], output_path: Path) -> Path:
     source = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
     if source is None:
         raise ValueError(f"Unable to read image: {image_path}")
     gray = cv2.cvtColor(source, cv2.COLOR_BGR2GRAY)
-    total_mask = np.zeros(gray.shape, dtype=np.uint8)
+    region_mask = _polygon_mask(gray.shape, geometry)
+    dark = cv2.inRange(gray, 0, 145)
+    text_mask = cv2.bitwise_and(dark, region_mask)
+    text_mask = cv2.dilate(text_mask, np.ones((3, 3), np.uint8), iterations=1)
 
-    for geometry in regions:
-        region_mask = _polygon_mask(gray.shape, geometry)
-        dark = cv2.inRange(gray, 0, 145)
-        text_mask = cv2.bitwise_and(dark, region_mask)
-        text_mask = cv2.dilate(text_mask, np.ones((3, 3), np.uint8), iterations=1)
-        total_mask = cv2.bitwise_or(total_mask, text_mask)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if not cv2.imwrite(str(output_path), text_mask):
+        raise ValueError(f"Unable to write mask image: {output_path}")
+    return output_path
+
+
+def generate_clean_page(image_path: Path, mask_paths: list[Path], output_path: Path) -> Path:
+    source = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+    if source is None:
+        raise ValueError(f"Unable to read image: {image_path}")
+    total_mask = np.zeros(source.shape[:2], dtype=np.uint8)
+
+    for mask_path in mask_paths:
+        mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+        if mask is None:
+            raise ValueError(f"Unable to read mask image: {mask_path}")
+        if mask.shape != total_mask.shape:
+            raise ValueError(f"Mask dimensions do not match page: {mask_path}")
+        total_mask = cv2.bitwise_or(total_mask, mask)
 
     cleaned = source if not np.any(total_mask) else cv2.inpaint(source, total_mask, 3, cv2.INPAINT_TELEA)
 

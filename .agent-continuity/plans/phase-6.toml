@@ -1,0 +1,84 @@
+manifest_version = 1
+id = "phase-6"
+project = "komamori"
+title = "Data integrity and safe processing"
+
+[[requirements]]
+id = "P6-R01"
+title = "Safe region processing"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P6-R01-C01"
+description = "Automatic detection creates unclassified regions as unknown rather than assuming dialogue"
+evidence = ["test", "review"]
+
+[[requirements.checks]]
+id = "P6-R01-C02"
+description = "Unknown and SFX regions are excluded from destructive cleanup"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P6-R01-C03"
+description = "Unknown and SFX regions are excluded from automatic localization"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P6-R01-C04"
+description = "Locale completion totals exclude unknown and SFX regions that are not automatically translatable"
+evidence = ["test"]
+
+[[requirements]]
+id = "P6-R02"
+title = "Derived-state invalidation"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P6-R02-C01"
+description = "Changing region geometry or processing type invalidates the page clean asset and stale region mask"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P6-R02-C02"
+description = "Changing region geometry recomputes localization layout for the new geometry"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P6-R02-C03"
+description = "Changing source OCR text demotes affected localizations to needs-review"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P6-R02-C04"
+description = "Adding a new cleanable region invalidates an existing page clean asset"
+evidence = ["test"]
+
+[[requirements]]
+id = "P6-R03"
+title = "Approved translation consistency"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P6-R03-C01"
+description = "Editing text of an approved localization demotes it to needs-review instead of preserving approved status"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P6-R03-C02"
+description = "Re-approving edited text updates approved translation reuse memory"
+evidence = ["test"]
+
+[[requirements]]
+id = "P6-R04"
+title = "Persistent text masks"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P6-R04-C01"
+description = "Cleaning persists a derived mask asset for every cleanable text region"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P6-R04-C02"
+description = "Clean-page generation consumes persisted region masks and the masks remain inspectable as derived assets"
+evidence = ["test", "review"]

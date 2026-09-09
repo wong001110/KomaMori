@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..models import Chapter, Localization, Page, TextRegion
+from ..region_types import TRANSLATABLE_REGION_TYPES
 from ..schemas import (
     ChapterLocalizationView,
     LocaleSummary,
@@ -28,7 +29,7 @@ def chapter_locales(chapter_id: int, session: Session = Depends(get_session)) ->
             .join(Page, TextRegion.page_id == Page.id)
             .where(
                 Page.chapter_id == chapter_id,
-                TextRegion.region_type != "sfx",
+                TextRegion.region_type.in_(tuple(TRANSLATABLE_REGION_TYPES)),
                 TextRegion.source_text != "",
             )
         )
