@@ -258,8 +258,17 @@ def approve_localization(localization_id: int, session: Session = Depends(get_se
     assert page is not None
     chapter = session.get(Chapter, page.chapter_id)
     assert chapter is not None
+
     loc.status = "approved"
-    remembered = bool(region.source_text.strip())
+    region_has_blocking_error = any(
+        issue.region_id == region.id and issue.severity == "error"
+        for issue in chapter_qa_issues(session, chapter, loc.locale)
+    )
+    remembered = bool(
+        region.region_type in TRANSLATABLE_REGION_TYPES
+        and region.source_text.strip()
+        and not region_has_blocking_error
+    )
     if remembered:
         approved = session.scalar(
             select(ApprovedTranslation).where(
@@ -278,5 +287,7 @@ def approve_localization(localization_id: int, session: Session = Depends(get_se
             session.add(approved)
         else:
             approved.target_text = loc.text
+    else:
+        _clear_approved_memory_for_region(session, region, loc.locale)
     session.commit()
     return ApprovalResult(localization_id=loc.id, status=loc.status, remembered=remembered)
