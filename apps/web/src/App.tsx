@@ -32,6 +32,12 @@ export default function App() {
     if (selectedChapter) setSelectedChapter(await api.getChapter(selectedChapter.id));
   };
 
+  const refreshSelectedChapter = async () => {
+    if (!selectedChapter) return;
+    setSelectedChapter(await api.getChapter(selectedChapter.id));
+    if (selectedSeries) setSelectedSeries(await api.getSeries(selectedSeries.id));
+  };
+
   useEffect(() => {
     refreshSeries().catch((reason) => setError(String(reason)));
   }, []);
@@ -192,9 +198,54 @@ export default function App() {
     setError(null);
     try {
       await api.importChapter(selectedChapter.id, files);
-      setSelectedChapter(await api.getChapter(selectedChapter.id));
-      if (selectedSeries) setSelectedSeries(await api.getSeries(selectedSeries.id));
+      await refreshSelectedChapter();
       event.currentTarget.reset();
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const replacePage = async (pageId: number, file: File) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.replacePage(pageId, file);
+      await refreshSelectedChapter();
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removePage = async (pageId: number) => {
+    if (!window.confirm("Delete this page? Its regions and localizations will also be removed.")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deletePage(pageId);
+      await refreshSelectedChapter();
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const movePage = async (pageId: number, delta: number) => {
+    if (!selectedChapter) return;
+    const ids = selectedChapter.pages.map((page) => page.id);
+    const index = ids.indexOf(pageId);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= ids.length) return;
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    setBusy(true);
+    setError(null);
+    try {
+      await api.reorderPages(selectedChapter.id, ids);
+      await refreshSelectedChapter();
     } catch (reason) {
       setError(String(reason));
     } finally {
@@ -294,11 +345,31 @@ export default function App() {
                 </div>
               )}
               <div className="page-list">
-                {selectedChapter.pages.slice(0, 8).map((page) => (
-                  <a className="page-row" href={`/api/pages/${page.id}/asset`} target="_blank" rel="noreferrer" key={page.id}>
-                    <span>{String(page.page_index).padStart(2, "0")}</span>
-                    <strong>{page.width} × {page.height}</strong>
-                  </a>
+                {selectedChapter.pages.map((page, index) => (
+                  <div className="page-row" key={page.id}>
+                    <a href={`/api/pages/${page.id}/asset`} target="_blank" rel="noreferrer">
+                      <span>{String(page.page_index).padStart(2, "0")}</span>
+                      <strong>{page.width} × {page.height}</strong>
+                    </a>
+                    <div className="page-recovery-actions">
+                      <button type="button" disabled={busy || index === 0} onClick={() => void movePage(page.id, -1)} aria-label={`Move page ${page.page_index} up`}>↑</button>
+                      <button type="button" disabled={busy || index === selectedChapter.pages.length - 1} onClick={() => void movePage(page.id, 1)} aria-label={`Move page ${page.page_index} down`}>↓</button>
+                      <label>
+                        Replace
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          disabled={busy}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (file) void replacePage(page.id, file);
+                            event.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                      <button type="button" className="danger" disabled={busy} onClick={() => void removePage(page.id)}>Delete</button>
+                    </div>
+                  </div>
                 ))}
               </div>
               {selectedChapterSummary && <small className="muted">Status: {selectedChapterSummary.status}</small>}
