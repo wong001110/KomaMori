@@ -176,3 +176,53 @@ class ApprovalResult(BaseModel):
     localization_id: int
     status: str
     remembered: bool
+
+
+class BatchAnalyzeResult(BaseModel):
+    chapter_id: int
+    pages_analyzed: int
+    pages_skipped: int
+    regions_created: int
+
+
+class BatchCleanResult(BaseModel):
+    chapter_id: int
+    pages_cleaned: int
+    pages_skipped: int
+
+
+class LocaleSummary(BaseModel):
+    locale: str
+    translated: int
+    approved: int
+    total_regions: int
+
+
+class RegionLocalizationView(BaseModel):
+    id: int
+    page_id: int
+    region_type: str
+    geometry: list[list[float]]
+    source_text: str
+    ocr_confidence: float | None
+    reading_order: int
+    localization: LocalizationRead | None = None
+
+
+class PageLocalizationView(BaseModel):
+    id: int
+    page_index: int
+    width: int | None
+    height: int | None
+    original_url: str
+    clean_url: str | None
+    regions: list[RegionLocalizationView]
+
+
+class ChapterLocalizationView(BaseModel):
+    chapter_id: int
+    series_id: int
+    title: str
+    number: float
+    locale: str
+    pages: list[PageLocalizationView]
