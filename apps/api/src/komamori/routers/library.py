@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..autofit import layout_payload
 from ..db import get_session
-from ..models import Chapter, Localization, Page, Series, TextRegion
+from ..models import ApprovedTranslation, Chapter, Localization, Page, Series, TextRegion
 from ..region_types import CLEANABLE_REGION_TYPES
 from ..schemas import ChapterCreate, ChapterDetail, ChapterRead, ChapterUpdate, ImportResult, PageRead, SeriesCreate, SeriesDetail, SeriesRead, SeriesUpdate, TextRegionCreate, TextRegionRead, TextRegionUpdate
 from ..storage import AssetStore, get_asset_store, unpack_uploads
@@ -23,9 +23,29 @@ def _get_or_404(session: Session, model: type[Series] | type[Chapter] | type[Pag
 
 
 def _delete_chapter_assets(assets: AssetStore, series_id: int, chapter_id: int) -> None:
-    assets.delete_tree(f"original/{series_id}/{chapter_id}")
-    assets.delete_tree(f"derived/clean/{chapter_id}")
-    assets.delete_tree(f"derived/masks/{chapter_id}")
+    assets.delete_trees_best_effort(
+        [
+            f"original/{series_id}/{chapter_id}",
+            f"derived/clean/{chapter_id}",
+            f"derived/masks/{chapter_id}",
+        ]
+    )
+
+
+def _region_asset_paths(regions: list[TextRegion]) -> list[str | None]:
+    return [region.mask_asset for region in regions]
+
+
+def _renumber_pages_without_collisions(session: Session, pages: list[Page]) -> None:
+    if not pages:
+        return
+    max_index = max(page.page_index for page in pages)
+    offset = max_index + len(pages) + 1000
+    for position, page in enumerate(pages, start=1):
+        page.page_index = offset + position
+    session.flush()
+    for position, page in enumerate(pages, start=1):
+        page.page_index = position
 
 
 @router.get("/series", response_model=list[SeriesRead])
@@ -71,11 +91,11 @@ def delete_series(
 ) -> Response:
     series = _get_or_404(session, Series, series_id)
     chapter_ids = list(session.scalars(select(Chapter.id).where(Chapter.series_id == series_id)))
-    for chapter_id in chapter_ids:
-        _delete_chapter_assets(assets, series_id, chapter_id)
-    assets.delete_tree(f"original/{series_id}")
     session.delete(series)
     session.commit()
+    for chapter_id in chapter_ids:
+        _delete_chapter_assets(assets, series_id, chapter_id)
+    assets.delete_trees_best_effort([f"original/{series_id}"])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -130,9 +150,10 @@ def delete_chapter(
     assets: AssetStore = Depends(get_asset_store),
 ) -> Response:
     chapter = _get_or_404(session, Chapter, chapter_id)
-    _delete_chapter_assets(assets, chapter.series_id, chapter.id)
+    series_id = chapter.series_id
     session.delete(chapter)
     session.commit()
+    _delete_chapter_assets(assets, series_id, chapter_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -143,12 +164,88 @@ async def import_chapter_pages(chapter_id: int, files: list[UploadFile] = File(.
     if existing_page is not None:
         raise HTTPException(status_code=409, detail="Chapter already has imported pages")
     imported = await unpack_uploads(files)
-    for page_index, import_page in enumerate(imported, start=1):
-        relative = assets.write_original(chapter.series_id, chapter.id, page_index, import_page)
-        session.add(Page(chapter_id=chapter.id, page_index=page_index, original_asset=relative, width=import_page.width, height=import_page.height, processing_status="structured"))
+    created_assets: list[str] = []
+    try:
+        for page_index, import_page in enumerate(imported, start=1):
+            relative = assets.write_original(chapter.series_id, chapter.id, page_index, import_page)
+            created_assets.append(relative)
+            session.add(Page(chapter_id=chapter.id, page_index=page_index, original_asset=relative, width=import_page.width, height=import_page.height, processing_status="structured"))
+        chapter.status = "processing"
+        session.commit()
+    except Exception:
+        session.rollback()
+        assets.delete_many_best_effort(created_assets)
+        raise
+    return ImportResult(chapter_id=chapter.id, pages_imported=len(imported))
+
+
+@router.put("/pages/{page_id}/asset", response_model=PageRead)
+async def replace_page_asset(
+    page_id: int,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    assets: AssetStore = Depends(get_asset_store),
+) -> Page:
+    page = _get_or_404(session, Page, page_id)
+    chapter = _get_or_404(session, Chapter, page.chapter_id)
+    imported = await unpack_uploads([file])
+    if len(imported) != 1:
+        raise HTTPException(status_code=422, detail="Page replacement requires exactly one image")
+    replacement = imported[0]
+    regions = list(session.scalars(select(TextRegion).where(TextRegion.page_id == page.id)))
+    obsolete: list[str | None] = [page.original_asset, page.clean_asset, *_region_asset_paths(regions)]
+    new_asset = assets.write_original(chapter.series_id, chapter.id, page.page_index, replacement)
+    try:
+        page.original_asset = new_asset
+        page.clean_asset = None
+        page.width = replacement.width
+        page.height = replacement.height
+        page.processing_status = "structured"
+        session.execute(delete(TextRegion).where(TextRegion.page_id == page.id))
+        chapter.status = "processing"
+        session.commit()
+    except Exception:
+        session.rollback()
+        assets.delete_many_best_effort([new_asset])
+        raise
+    assets.delete_many_best_effort(obsolete)
+    session.refresh(page)
+    return page
+
+
+@router.delete("/pages/{page_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_page(
+    page_id: int,
+    session: Session = Depends(get_session),
+    assets: AssetStore = Depends(get_asset_store),
+) -> Response:
+    page = _get_or_404(session, Page, page_id)
+    regions = list(session.scalars(select(TextRegion).where(TextRegion.page_id == page.id)))
+    obsolete: list[str | None] = [page.original_asset, page.clean_asset, *_region_asset_paths(regions)]
+    chapter_id = page.chapter_id
+    session.delete(page)
+    session.flush()
+    remaining = list(session.scalars(select(Page).where(Page.chapter_id == chapter_id).order_by(Page.page_index, Page.id)))
+    _renumber_pages_without_collisions(session, remaining)
+    chapter = _get_or_404(session, Chapter, chapter_id)
     chapter.status = "processing"
     session.commit()
-    return ImportResult(chapter_id=chapter.id, pages_imported=len(imported))
+    assets.delete_many_best_effort(obsolete)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put("/chapters/{chapter_id}/pages/order", response_model=list[PageRead])
+def reorder_pages(chapter_id: int, page_ids: list[int], session: Session = Depends(get_session)) -> list[Page]:
+    _get_or_404(session, Chapter, chapter_id)
+    pages = list(session.scalars(select(Page).where(Page.chapter_id == chapter_id).order_by(Page.page_index, Page.id)))
+    current_ids = [page.id for page in pages]
+    if len(page_ids) != len(set(page_ids)) or set(page_ids) != set(current_ids):
+        raise HTTPException(status_code=422, detail="page_ids must contain every chapter page exactly once")
+    by_id = {page.id: page for page in pages}
+    ordered = [by_id[page_id] for page_id in page_ids]
+    _renumber_pages_without_collisions(session, ordered)
+    session.commit()
+    return ordered
 
 
 @router.get("/pages/{page_id}/asset")
@@ -187,13 +284,14 @@ def create_region(
     assets: AssetStore = Depends(get_asset_store),
 ) -> TextRegion:
     page = _get_or_404(session, Page, page_id)
-    if payload.region_type in CLEANABLE_REGION_TYPES and page.clean_asset:
-        assets.delete(page.clean_asset)
+    old_clean = page.clean_asset if payload.region_type in CLEANABLE_REGION_TYPES else None
+    if old_clean:
         page.clean_asset = None
         page.processing_status = "analyzed"
     region = TextRegion(page_id=page_id, **payload.model_dump())
     session.add(region)
     session.commit()
+    assets.delete_many_best_effort([old_clean])
     session.refresh(region)
     return region
 
@@ -207,15 +305,17 @@ def update_region(
 ) -> TextRegion:
     region = _get_or_404(session, TextRegion, region_id)
     page = _get_or_404(session, Page, region.page_id)
+    chapter = _get_or_404(session, Chapter, page.chapter_id)
     changes = payload.model_dump(exclude_unset=True)
     geometry_changed = "geometry" in changes and changes["geometry"] != region.geometry
     type_changed = "region_type" in changes and changes["region_type"] != region.region_type
     source_changed = "source_text" in changes and changes["source_text"] != region.source_text
+    old_source = region.source_text
+    obsolete: list[str | None] = []
 
     if geometry_changed or type_changed:
-        assets.delete(region.mask_asset)
+        obsolete.extend([region.mask_asset, page.clean_asset])
         region.mask_asset = None
-        assets.delete(page.clean_asset)
         page.clean_asset = None
         page.processing_status = "analyzed"
 
@@ -233,8 +333,19 @@ def update_region(
     if source_changed:
         for localization in localizations:
             localization.status = "needs-review"
+            if old_source.strip():
+                approved = session.scalar(
+                    select(ApprovedTranslation).where(
+                        ApprovedTranslation.series_id == chapter.series_id,
+                        ApprovedTranslation.locale == localization.locale,
+                        ApprovedTranslation.source_text == old_source,
+                    )
+                )
+                if approved is not None:
+                    session.delete(approved)
 
     session.commit()
+    assets.delete_many_best_effort(obsolete)
     session.refresh(region)
     return region
 
@@ -247,11 +358,12 @@ def delete_region(
 ) -> Response:
     region = _get_or_404(session, TextRegion, region_id)
     page = _get_or_404(session, Page, region.page_id)
-    assets.delete(region.mask_asset)
+    obsolete: list[str | None] = [region.mask_asset]
     if region.region_type in CLEANABLE_REGION_TYPES and page.clean_asset:
-        assets.delete(page.clean_asset)
+        obsolete.append(page.clean_asset)
         page.clean_asset = None
         page.processing_status = "analyzed"
     session.delete(region)
     session.commit()
+    assets.delete_many_best_effort(obsolete)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
