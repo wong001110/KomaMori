@@ -2,138 +2,209 @@
 
 **A self-hosted web workspace for turning manga pages into structured, multilingual, editable reading experiences.**
 
-KomaMori is a personal technical exploration project focused on manga localization rather than a commercial translation service. The core idea is to treat manga as **structured, localizable content** instead of a collection of flattened images.
+KomaMori is a personal technical exploration project for manga localization and reading. Instead of treating a translated page as one flattened output image, KomaMori keeps the source page, text regions, OCR text, clean assets, localizations, and per-language layout as reusable structured data.
 
-A manga page is processed into reusable source data — text regions, OCR text, masks, clean assets, translations, and language-specific layout — then reused by the editor and reader.
+> **Status: experimental MVP.** The end-to-end workflow is implemented for normal dialogue/narration, but the OCR/detection/cleanup quality is still an exploration baseline rather than production scanlation quality.
 
-## Core flow
+## What works today
 
-```text
-Import manga
-    ↓
-Detect text regions
-    ↓
-OCR + reading order
-    ↓
-Structured page data
-   ↙             ↘
-Masks / clean     Localization
-assets             per language
-   ↘             ↙
-     Auto layout
-          ↓
-        Review
-          ↓
-        Render
-          ↓
-   Library / Reader
-```
+- image and CBZ/ZIP chapter import
+- immutable original page assets
+- automatic text-region detection and OCR
+- editable OCR/source text
+- derived clean pages using region-aware OpenCV inpainting
+- per-series locked terminology
+- OpenAI-compatible LLM translation provider with nearby dialogue context
+- exact reuse of approved translations
+- multiple target locales on one shared structured source
+- per-locale auto-fit metadata and poor-fit detection
+- deterministic QA for missing translations, locked terms, OCR confidence, and layout fit
+- manual translation editing and approval in the web workbench
+- multilingual reader with Original / Localized switching
+- SQLite + local filesystem self-hosted persistence
 
-The important boundary is that **localization data is attached to structured text regions, not baked directly into the source image**. Original pages remain immutable; cleaned and rendered pages are derived assets that can be regenerated.
+SFX is intentionally excluded from automatic cleanup/localization in the MVP.
 
-## What KomaMori explores
-
-- manga text-region detection and OCR
-- reading-order reconstruction
-- AI-assisted translation with nearby panel/dialogue context
-- fixed terminology and approved translation reuse
-- text masks and inpainting for clean page assets
-- language-specific typesetting and auto-fit
-- translation ↔ layout feedback when translated text does not fit well
-- human review and correction inside a web editor
-- multilingual manga reading from the same structured source
-- optional multimodal experiments where a general VLM can use visual context to resolve ambiguous dialogue
-
-## Product shape
-
-KomaMori is intended to feel like a small personal manga library rather than a translation dashboard.
+## Core workflow
 
 ```text
-Library
-└── Series
-    └── Chapter
-        ├── Original
-        ├── English
-        ├── 中文
-        └── Other localizations
-```
-
-A chapter moves through a lightweight lifecycle:
-
-```text
-raw → processing → review → ready
-```
-
-The same structured source can support editing, rendering, experimentation, and reading without re-running OCR or image cleanup for every language.
-
-## Design principles
-
-1. **Structure first** — convert pages into reusable text regions and metadata before treating translation as the final artifact.
-2. **Keep originals immutable** — OCR, masks, clean pages, translations, and renders are derived data.
-3. **Use general models for semantic reasoning** — tone, emotion, ambiguity, and scene interpretation should usually be inferred from context instead of becoming separate AI subsystems.
-4. **Persist decisions, not guesses** — names, terminology, approved translations, and stable localization rules belong in durable project data.
-5. **Prefer deterministic checks where possible** — terminology violations, missing text, low OCR confidence, and layout overflow should not require an LLM when software can verify them directly.
-6. **Human review remains first-class** — the goal is useful assistance and experimentation, not pretending every AI result is final.
-7. **Avoid premature architecture** — start as a modular web application with Python-native AI processing; split services only when real workload boundaries require it.
-
-## Initial technical direction
-
-KomaMori is web-first and self-hostable.
-
-```text
-React / Next.js web UI
+Import manga / CBZ
+        ↓
+Structured pages
+        ↓
+Detect text regions + OCR
         │
-        ▼
-Python API / application backend
-        │
-        ├── structured project data
-        ├── local or object-file storage
-        └── background processing
-                 │
-                 ├── OCR
-                 ├── OpenCV / image processing
-                 ├── inpainting
-                 └── LLM / VLM providers
+        ├───────────────┐
+        ▼               ▼
+Clean page          Localization
+(OpenCV)      terms + context + LLM/manual
+        │               │
+        └───────┬───────┘
+                ▼
+          Per-locale layout
+                ↓
+              QA
+                ↓
+          Human review
+                ↓
+        Library / Reader
 ```
 
-Exact libraries are intentionally not locked yet. The project should validate the workflow before committing to unnecessary infrastructure.
+The original page remains immutable. Clean pages, translations, layouts, and future rendered pages are derived data and can be regenerated.
 
-## Scope boundaries
+## Quick start — Docker Compose
 
-### Core
+Requirements: Docker with Compose support.
 
-- image / CBZ import
-- text-region detection
-- OCR
-- source page structure
-- masks and clean-page generation
-- translation with localization data
-- per-language layout
-- auto-fit
-- review/edit workflow
-- multilingual reader
+```bash
+cp .env.example .env
+# Optional: configure an LLM provider in .env
 
-### Later experiments
+docker compose up --build
+```
 
-- speaker metadata when it demonstrably helps translation
-- richer visual-context translation
-- typography-role matching
-- SFX localization
-- model / prompt / context A/B evaluation
-- progressive chapter processing
+Open:
 
-Specialized character-voice or emotion subsystems are **not** part of the core architecture. Modern general multimodal models can usually infer these dynamically from the current scene and dialogue; they should only become dedicated features if experiments show a clear benefit.
+```text
+http://localhost:8787
+```
+
+The Compose stack persists:
+
+```text
+./data     SQLite database
+./assets   original + derived manga assets
+```
+
+The web container proxies `/api` to the FastAPI container, so the browser uses one local origin.
+
+### Optional AI translation configuration
+
+KomaMori can use an OpenAI-compatible Chat Completions endpoint:
+
+```env
+KOMAMORI_LLM_BASE_URL=https://your-provider.example/v1
+KOMAMORI_LLM_API_KEY=...
+KOMAMORI_LLM_MODEL=...
+```
+
+Without these variables, the rest of the workbench remains usable and translations can be entered manually. The **AI localize** action will report that no provider is configured.
+
+The Docker MVP uses Tesseract Japanese OCR by default. Native development can optionally install the `mangaocr` extra and set `KOMAMORI_OCR_PROVIDER=mangaocr` for experiments.
+
+## Local development
+
+### API
+
+```bash
+python -m pip install -e ".[dev]"
+make api
+```
+
+### Web
+
+```bash
+cd apps/web
+npm install
+npm run dev
+```
+
+The Vite development server proxies `/api` to `http://localhost:8000`.
+
+### Tests
+
+```bash
+make test
+```
+
+Pull requests also run:
+
+- backend pytest
+- TypeScript + Vite production build
+- Docker Compose configuration and container builds
+
+## Current architecture
+
+```text
+Browser
+  │
+  ▼
+React + Vite
+Library / Workbench / Reader
+  │
+  ▼
+FastAPI
+  ├── SQLite structured data
+  ├── local manga assets
+  ├── OCR / OpenCV processing
+  └── LLM provider abstraction
+```
+
+The application intentionally remains a modular monolith. OCR, cleanup, localization, QA, and workbench views are application modules, not separately deployed microservices.
+
+Core source model:
+
+```text
+Series
+└── Chapter
+    └── Page
+        ├── OriginalAsset
+        ├── CleanAsset?       derived
+        └── TextRegion[]
+            ├── geometry
+            ├── sourceText
+            ├── OCR metadata
+            └── Localization[]
+                ├── locale
+                ├── text
+                ├── status
+                └── layout
+```
+
+## Localization data philosophy
+
+KomaMori keeps stable decisions in deterministic data instead of asking a model to rediscover them every time:
+
+```text
+locked terminology
+approved translations
+source/target locale
+review status
+layout metadata
+```
+
+Dynamic interpretation such as tone, emotion, or scene meaning is not modeled as dedicated Character Voice / Emotion services. General LLM/VLM context experiments can handle those later if benchmarks show a real benefit.
+
+## Known MVP limitations
+
+- text detection is currently an OpenCV heuristic, not a manga-specialized detector
+- Tesseract is the default OCR baseline; real manga quality varies substantially
+- clean-page generation uses basic OpenCV inpainting and may damage complex artwork
+- region geometry can be edited through the API, but the MVP web UI does not yet provide a drag/resize mask editor
+- auto-fit is heuristic and does not yet use polygon-aware balloon shaping
+- poor-fit is detected, but automatic translation-shortening feedback is not yet closed-loop
+- processing actions are synchronous; there is no background job/progress system yet
+- there is no pre-rendered page cache; the reader uses structured overlays
+- SFX reconstruction is intentionally deferred
+- no multi-user collaboration or public manga catalog
+
+These are post-MVP engineering/research targets, not hidden production claims.
+
+## Agent Continuity experiment
+
+KomaMori is also being used as a live test bed for **Agent Continuity**: disposable cloud development sessions backed by GitHub for code/review history and an external SQLite execution-state snapshot for phase/task/checkpoint/evidence recovery.
+
+See [`docs/AGENT_CONTINUITY.md`](docs/AGENT_CONTINUITY.md).
+
+The implementation itself does not depend on the previous chat history to describe the next development task; the continuity experiment is tracked separately from KomaMori's runtime database.
 
 ## Non-commercial exploration
 
-KomaMori is designed for personal experimentation and small-group internal use. It is not intended to provide a public catalog of third-party copyrighted manga. Publicly shared demo content should be original, public-domain, or otherwise authorized for redistribution and localization.
+KomaMori is designed for personal experimentation and small-group internal use. It is not intended to operate a public catalog of third-party copyrighted manga. Public demos should use original, public-domain, or otherwise authorized content.
 
 ## Documentation
 
-- [`docs/CONCEPT.md`](docs/CONCEPT.md) — product concept, boundaries, and key ideas
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — core data model and processing architecture
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — staged implementation and research roadmap
-
-## Status
-
-**Concept / architecture definition.** Implementation has not started yet.
+- [`docs/CONCEPT.md`](docs/CONCEPT.md) — product concept and scope boundaries
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — implemented architecture and data model
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — completed MVP phases and post-MVP experiments
+- [`docs/AGENT_CONTINUITY.md`](docs/AGENT_CONTINUITY.md) — continuity experiment protocol

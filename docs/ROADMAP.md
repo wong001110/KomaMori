@@ -1,238 +1,227 @@
 # KomaMori Roadmap
 
-This roadmap is intentionally staged around **usable capability first, experimentation second**.
+KomaMori is developed **phase by phase through pull requests**. The rule is usable capability first, experiments second: an optional AI feature should not become permanent architecture until it solves a measured failure of the simpler baseline.
 
-The project is a personal/small-group technical exploration, so later phases may investigate ideas with uncertain product ROI. However, each experiment should have a baseline and a clear hypothesis rather than becoming permanent architecture by default.
+## MVP execution history
 
----
+### Phase 0 — Foundation ✅
 
-## Phase 0 — Project foundation
+PR #1
 
-### Goal
+Implemented:
 
-Create the smallest stable project skeleton and lock the source/localization data model before implementing AI features.
+- FastAPI + SQLAlchemy application foundation
+- React/Vite web shell
+- SQLite/local asset direction
+- `Series → Chapter → Page → TextRegion → Localization` source model
+- immutable-original / derived-asset boundary
+- Agent Continuity SQLite schema and bootstrap protocol
 
-### Deliverables
+Gate evidence:
 
-- [ ] Next.js / React web application shell
-- [ ] FastAPI application backend
-- [ ] SQLite database
-- [ ] local asset storage layout
-- [ ] Series / Chapter / Page entities
-- [ ] `TextRegion` schema
-- [ ] per-locale `Localization` schema
-- [ ] original vs derived asset rules
-- [ ] basic Library → Series → Chapter navigation
-
-### Exit condition
-
-A manga chapter can be imported manually and represented as structured pages even if regions/translations are still entered by hand.
+- API health test
+- continuity state initialization/bootstrap
+- first durable SQLite snapshot stored outside the ephemeral workspace
 
 ---
 
-## Phase 1 — Usable single-language localization core
+### Phase 1 — Structured manga core ✅
 
-### Goal
+PR #2
 
-Complete one chapter through the full workflow without requiring external image-editing software for normal dialogue/narration.
+Implemented:
 
-### Import and processing
+- Series / Chapter creation and browsing
+- image import
+- CBZ/ZIP import
+- natural page ordering
+- image validation and original asset persistence
+- manual TextRegion API
+- initial Library web UI
 
-- [ ] image import
-- [ ] CBZ import
-- [ ] page ordering
-- [ ] text-region detection
-- [ ] OCR integration
-- [ ] reading-order reconstruction
-- [ ] editable OCR results
+Gate evidence:
 
-### Cleaning
+- backend import/asset/region tests
+- 3 pytest tests passing at the phase gate
 
-- [ ] generate text masks
-- [ ] preserve immutable original page
-- [ ] flat-background cleanup
-- [ ] basic inpainting
-- [ ] clean asset preview / reject / regenerate
+---
 
-### Localization
+### Phase 2 — Localization processing core ✅
 
-- [ ] choose one initial target language
-- [ ] LLM translation provider abstraction
-- [ ] nearby-dialogue context
-- [ ] editable translation results
-- [ ] simple fixed terminology store
+PR #3
 
-### Typesetting
+Implemented:
 
-- [ ] basic text overlay editor
-- [ ] locale layout data
-- [ ] font selection
-- [ ] alignment / line-height controls
-- [ ] initial auto-fit
-- [ ] manual override support
+- OpenCV text-region detection baseline
+- pluggable OCR provider
+  - Tesseract default
+  - MangaOCR optional runtime
+- derived clean-page generation with OpenCV inpainting
+- locked terminology
+- OpenAI-compatible translation provider abstraction
+- nearby-dialogue context
+- exact approved-translation reuse
+- per-locale Localization data
+- heuristic auto-fit
+- deterministic QA
+- approval/reuse workflow
 
-### Review / reader
+Gate evidence:
 
-- [ ] per-region review status
-- [ ] render translated page
-- [ ] chapter reader
-- [ ] original / translated toggle
+- synthetic processing tests with fake OCR
+- translation tests with fake provider
+- 7 pytest tests passing at the phase gate
 
-### Out of scope
+Explicitly deferred:
 
 - SFX reconstruction
-- speaker detection
-- character voice model
-- emotion classifier
+- character-voice subsystem
+- emotion subsystem
 - semantic RAG
-- multi-user collaboration
-
-### Exit condition
-
-A normal dialogue-heavy chapter can be imported, OCRed, translated, cleaned, typeset, reviewed, and read inside KomaMori.
 
 ---
 
-## Phase 2 — Multilingual structured library
+### Phase 3 — Web localization workbench + multilingual reader ✅
 
-### Goal
+PR #4
 
-Validate the key KomaMori abstraction: process the manga source once, then attach multiple localizations without repeating OCR or cleanup.
+Implemented:
 
-### Deliverables
+- chapter-level Detect/OCR and Clean actions
+- multilingual workbench view API
+- locale completion indicators
+- shared structured `MangaStage` overlay rendering
+- OCR/source text editing
+- target translation editing
+- terminology editing
+- deterministic QA issue navigation
+- approval from the editor
+- multilingual reader
+- Original / Localized reader toggle
+- Library → Workbench → Reader workflow
+- GitHub Actions for backend tests and real frontend production build
 
-- [ ] multiple target locales per chapter
-- [ ] locale-specific layout
-- [ ] language switcher in reader
-- [ ] locale readiness/status indicators
-- [ ] per-locale page render cache
-- [ ] render invalidation after editing
-- [ ] optional bilingual/original comparison mode
+Gate evidence:
 
-### Localization Store expansion
+- 9 local pytest tests passing
+- local TS/TSX syntax transpile check
+- GitHub Actions frontend `npm install + npm run build` success
+- GitHub Actions backend pytest success
 
-- [ ] locked terminology
-- [ ] aliases
-- [ ] approved translations
-- [ ] project localization rules
-- [ ] basic fuzzy reuse of previous approved lines where useful
-
-Do not split these into separate CAT services unless real complexity appears.
-
-### Exit condition
-
-The same processed chapter can be read in at least two target languages using one shared structured source.
-
----
-
-## Phase 3 — Quality and review loop
-
-### Goal
-
-Reduce the amount of manual correction without hiding AI uncertainty.
-
-### Deterministic QA
-
-- [ ] untranslated-region detection
-- [ ] locked-term validation
-- [ ] low OCR-confidence warnings
-- [ ] overflow detection
-- [ ] minimum readable font-size rule
-- [ ] missing/invalid region checks
-
-### Semantic QA
-
-- [ ] optional structured LLM review
-- [ ] mistranslation / context warning
-- [ ] naturalness suggestions
-- [ ] preserve original + suggestion + accepted edit provenance
-
-### Translation ↔ layout feedback
-
-- [ ] detect poor fit
-- [ ] calculate useful shortening target
-- [ ] request shorter equivalent translation
-- [ ] preserve locked terminology and meaning constraints
-- [ ] re-run auto-fit
-- [ ] compare shortened result with original translation
-
-### Reader correction loop
-
-- [ ] jump from reader region/page to editor
-- [ ] edit translation
-- [ ] invalidate affected render only
-- [ ] regenerate page
-- [ ] save approved result for future reuse
-
-### Exit condition
-
-The user can focus primarily on exceptions and low-confidence regions instead of manually inspecting every system step from scratch.
+The same processed source was explicitly tested with both `en` and `zh-TW` localizations sharing one TextRegion identity.
 
 ---
 
-## Phase 4 — Multimodal translation experiments
+### Phase 4 — MVP hardening + handoff 🚧
 
-### Goal
+Goal: make the implemented workflow honestly runnable as a small self-hosted MVP and align documentation with the real code.
 
-Measure where visual/contextual signals improve translation instead of assuming every manga translation needs a complicated character system.
+In scope:
 
-Each experiment must compare against the current baseline.
+- Dockerized API
+- Dockerized production web build + Nginx API proxy
+- Compose persistence for SQLite and assets
+- container build CI gate
+- README / architecture / roadmap synchronization
+- final Agent Continuity restore test after merge
 
-### Experiment A — Visual-context escalation
+Exit condition:
 
-**Hypothesis:** a VLM improves ambiguous dialogue when nearby visual context matters.
+```text
+docker compose up --build
+```
 
-- [ ] select ambiguous/low-confidence examples
-- [ ] text-only baseline
-- [ ] panel-image + text run
-- [ ] compare human preference / correction rate
-- [ ] decide when VLM escalation is worthwhile
+provides the web workspace on `http://localhost:8787`, CI is green, and a fresh cloud session can restore the final development state from the durable SQLite snapshot without relying on previous chat context.
 
-### Experiment B — Speaker metadata
+---
 
-**Hypothesis:** speaker identity reduces errors involving omitted subjects, register, relationships, or pronouns.
+# Post-MVP engineering track
 
-- [ ] manually label a small evaluation set first
-- [ ] compare translation with/without speaker metadata
-- [ ] only then investigate automatic speaker extraction
+These improve the practical baseline before more speculative AI work.
 
-Speaker detection is promoted to core only if it produces a meaningful improvement.
+## Reliable manga processing
 
-### Experiment C — Larger context
+- benchmark manga-specialized text detectors instead of relying on the OpenCV heuristic
+- benchmark Tesseract vs MangaOCR vs other OCR choices on a fixed manga set
+- preserve OCR confidence where providers expose it
+- interactive region add/move/resize/delete in the web editor
+- manual mask refinement
+- cleanup routing: flat fill vs conventional inpaint vs neural inpaint
+- background processing queue + progress UI for chapter jobs
 
-**Hypothesis:** selected prior dialogue improves continuity more than simply increasing raw context size.
+## Layout and rendering
+
+- polygon/balloon-aware safe area
+- measured text layout rather than character-count approximation
+- better line-break search and visual balance scoring
+- font registry and per-locale typography presets
+- optional pre-rendered page cache and invalidation
+
+## Translation ↔ layout feedback
+
+Current MVP detects `poor-fit` and calculates a rough target length. The next experiment is to close the loop:
+
+```text
+translation
+   ↓
+auto-fit
+   ↓
+poor-fit?
+   ↓ yes
+request a shorter equivalent
+   ↓
+re-fit + review
+```
+
+The shorter version must preserve meaning and locked terminology.
+
+## Quality measurement
+
+Track practical metrics rather than feature count:
+
+- OCR correction rate
+- missed/false text regions
+- terminology violations
+- translation corrections
+- clean-page artifact rate
+- % layouts accepted without manual adjustment
+- manual correction time per page
+
+---
+
+# Post-MVP research track
+
+## Visual-context translation
+
+Hypothesis: a general VLM helps a subset of ambiguous dialogue.
+
+Compare:
+
+- text only
+- nearby dialogue
+- panel/page visual context
+
+Only introduce visual escalation rules if human evaluation shows a meaningful improvement.
+
+## Speaker metadata
+
+Hypothesis: speaker identity helps omitted subjects, register, relationships, or pronouns.
+
+Start with a manually labeled evaluation set. Automatic speaker detection is not justified until the translation benefit is demonstrated.
+
+## Larger-context strategies
 
 Compare:
 
 - current region only
 - nearby N regions
-- current panel
-- selected previous dialogue
-- later, semantic retrieval if justified
+- selected prior dialogue
+- chapter summary
+- semantic retrieval only if long-range failures justify it
 
-### Explicit non-goal
+## Typography-role matching
 
-Do not create dedicated emotion or character-voice services simply because the concepts exist. Let a general LLM/VLM infer dynamic tone from context unless evidence shows that durable modeling improves results.
-
----
-
-## Phase 5 — Rendering intelligence
-
-### Goal
-
-Explore harder visual-localization problems after the standard dialogue pipeline is stable.
-
-### Advanced auto-fit
-
-- [ ] polygon / balloon-aware safe area
-- [ ] better candidate line-break search
-- [ ] balanced line scoring
-- [ ] vertical text experimentation if relevant
-- [ ] script-specific typography rules
-
-### Typography role
-
-Instead of predicting exact original font names, explore visual roles such as:
+Explore roles rather than exact font-name recognition:
 
 ```text
 normal dialogue
@@ -240,152 +229,57 @@ shout
 whisper
 thought
 narration
-horror / dramatic
+dramatic / horror
 ```
 
-- [ ] source visual-style extraction
-- [ ] target font-role mapping
-- [ ] compare manual preference
+## SFX exploration
 
-### Advanced cleanup
+Treat SFX as a graphics/localization research problem rather than ordinary dialogue:
 
-- [ ] route between deterministic fill / conventional inpaint / neural inpaint
-- [ ] manual mask refinement
-- [ ] difficult artwork benchmark
+- detect SFX separately
+- OCR stylized/rotated text
+- semantic localization choices
+- preserve-vs-replace modes
+- transformed text placement
+- outline/rotation/warp reproduction
+- difficult background reconstruction
 
----
+SFX automation becomes normal workflow only if it reduces graphics work without visibly damaging art.
 
-## Phase 6 — SFX exploration
+## Experiment harness
 
-### Goal
-
-Treat SFX as a dedicated graphics/localization research problem instead of letting it complicate the initial pipeline.
-
-Possible experiments:
-
-- [ ] identify SFX regions separately from normal text
-- [ ] OCR stylized/rotated Japanese SFX
-- [ ] semantic translation / localization choices
-- [ ] preserve-vs-replace reader mode
-- [ ] transformed target text placement
-- [ ] outline / rotation / warp reproduction
-- [ ] background reconstruction quality
-
-### Success criterion
-
-SFX automation should only become a normal workflow when it reduces manual graphics work without visibly damaging the artwork.
-
----
-
-## Phase 7 — Experiment harness
-
-### Goal
-
-Turn KomaMori into a repeatable domain-specific AI experimentation environment without coupling experiments to production behavior.
-
-### Track per run
+Later, make comparisons repeatable by recording:
 
 - model/provider
 - prompt/version
 - context strategy
 - VLM on/off
 - terminology strategy
-- latency
-- estimated API cost when applicable
-- translation output
+- latency / API cost when available
+- outputs
 - human corrections
-- acceptance/preference score
+- preference / acceptance scores
 
-### Example comparisons
+Example comparisons:
 
 ```text
 Model A vs Model B
-2 nearby bubbles vs 6
+2 nearby regions vs 6
 text-only vs VLM
-fixed terms vs no fixed terms
+locked terms vs no locked terms
 speaker metadata vs none
 layout-aware shortening vs ordinary translation
 ```
 
-### Exit condition
-
-A new translation hypothesis can be evaluated against a fixed dataset without changing the core application workflow.
-
 ---
 
-## Possible later directions — not committed roadmap
+# Architecture rule
 
-These are ideas, not promised phases:
+Before introducing a new subsystem, answer at least one:
 
-- progressive/on-demand chapter processing while reading
-- prefetching likely next chapters/pages
-- LAN/private multi-user access
-- comments or lightweight internal review collaboration
-- self-hosted local LLM/VLM providers
-- PostgreSQL migration
-- object storage
-- semantic retrieval across long series
-- public demo/library for authorized content
+- Does it remove a measured failure mode?
+- Does it materially simplify existing code?
+- Does it enable a real experiment that current boundaries cannot support?
+- Does it have a genuinely different deployment/lifecycle requirement?
 
----
-
-# Evaluation principles
-
-## Primary practical metric
-
-For real chapter use, track roughly:
-
-```text
-manual correction time per page
-```
-
-and/or:
-
-```text
-% regions accepted without manual modification
-```
-
-This matters more than how many AI components are present.
-
-## Useful component metrics
-
-### OCR
-
-- detection misses
-- OCR correction rate
-- reading-order errors
-
-### Translation
-
-- meaning errors
-- terminology errors
-- context errors
-- naturalness corrections
-
-### Cleaning
-
-- accepted clean regions/pages
-- visible artifacts
-- destructive inpainting errors
-
-### Typesetting
-
-- auto-accepted layout
-- minor manual adjustment
-- full manual redo
-
-## Research rule
-
-Every optional intelligence feature should answer:
-
-> What measurable failure does this solve compared with the simpler baseline?
-
-If the answer remains unclear, keep the feature as an experiment or remove it.
-
----
-
-# Current status
-
-**Phase 0 — concept and architecture definition.**
-
-No implementation assumptions beyond the initial architecture should be treated as permanent until the first real chapter passes through the workflow.
+If not, keep it inside the current modular application or leave it as an experiment.

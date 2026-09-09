@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "komamori"
 version = "0.1.0"
@@ -21,6 +25,10 @@ dev = [
   "pytest>=8.4,<9",
 ]
 mangaocr = ["manga-ocr>=0.1.14,<1"]
+
+[tool.setuptools.packages.find]
+where = ["apps/api/src"]
+include = ["komamori*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["apps/api/src"]
