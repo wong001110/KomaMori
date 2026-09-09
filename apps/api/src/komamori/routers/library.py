@@ -5,8 +5,9 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..autofit import layout_payload
 from ..db import get_session
-from ..models import Chapter, Page, Series, TextRegion
+from ..models import Chapter, Localization, Page, Series, TextRegion
 from ..schemas import ChapterCreate, ChapterDetail, ChapterRead, ImportResult, PageRead, SeriesCreate, SeriesDetail, SeriesRead, TextRegionCreate, TextRegionRead, TextRegionUpdate
 from ..storage import AssetStore, get_asset_store, unpack_uploads
 
@@ -90,6 +91,14 @@ def clean_page_asset(page_id: int, session: Session = Depends(get_session), asse
     return FileResponse(assets.resolve(page.clean_asset))
 
 
+@router.get("/regions/{region_id}/mask-asset")
+def region_mask_asset(region_id: int, session: Session = Depends(get_session), assets: AssetStore = Depends(get_asset_store)) -> FileResponse:
+    region = _get_or_404(session, TextRegion, region_id)
+    if not region.mask_asset:
+        raise HTTPException(status_code=404, detail="Text mask has not been generated")
+    return FileResponse(assets.resolve(region.mask_asset), media_type="image/png")
+
+
 @router.get("/pages/{page_id}/regions", response_model=list[TextRegionRead])
 def list_regions(page_id: int, session: Session = Depends(get_session)) -> list[TextRegion]:
     _get_or_404(session, Page, page_id)
@@ -107,10 +116,41 @@ def create_region(page_id: int, payload: TextRegionCreate, session: Session = De
 
 
 @router.patch("/regions/{region_id}", response_model=TextRegionRead)
-def update_region(region_id: int, payload: TextRegionUpdate, session: Session = Depends(get_session)) -> TextRegion:
+def update_region(
+    region_id: int,
+    payload: TextRegionUpdate,
+    session: Session = Depends(get_session),
+    assets: AssetStore = Depends(get_asset_store),
+) -> TextRegion:
     region = _get_or_404(session, TextRegion, region_id)
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    page = _get_or_404(session, Page, region.page_id)
+    changes = payload.model_dump(exclude_unset=True)
+    geometry_changed = "geometry" in changes and changes["geometry"] != region.geometry
+    type_changed = "region_type" in changes and changes["region_type"] != region.region_type
+    source_changed = "source_text" in changes and changes["source_text"] != region.source_text
+
+    if geometry_changed or type_changed:
+        assets.delete(region.mask_asset)
+        region.mask_asset = None
+        assets.delete(page.clean_asset)
+        page.clean_asset = None
+        page.processing_status = "analyzed"
+
+    for key, value in changes.items():
         setattr(region, key, value)
+
+    localizations = list(session.scalars(select(Localization).where(Localization.text_region_id == region.id)))
+    if geometry_changed:
+        for localization in localizations:
+            localization.layout = layout_payload(localization.text, region.geometry) if localization.text else {}
+            localization.quality_metadata = {
+                **(localization.quality_metadata or {}),
+                "fitStatus": localization.layout.get("fitStatus") if localization.layout else None,
+            }
+    if source_changed:
+        for localization in localizations:
+            localization.status = "needs-review"
+
     session.commit()
     session.refresh(region)
     return region
