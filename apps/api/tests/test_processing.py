@@ -37,7 +37,7 @@ def test_detector_finds_synthetic_text_block() -> None:
     assert detect_text_boxes(image)
 
 
-def test_analyze_and_clean_page(client: TestClient) -> None:
+def test_analyze_is_unclassified_and_cleanup_is_fail_safe(client: TestClient) -> None:
     _, page_id = setup_page(client)
     app.dependency_overrides[get_ocr_provider] = lambda: FakeOCR()
     try:
@@ -46,11 +46,45 @@ def test_analyze_and_clean_page(client: TestClient) -> None:
         app.dependency_overrides.pop(get_ocr_provider, None)
     assert analyzed.status_code == 200
     assert analyzed.json()["regions_created"] >= 1
+
     regions = client.get(f"/api/pages/{page_id}/regions").json()
     assert regions[0]["source_text"] == "テスト"
+    assert all(region["region_type"] == "unknown" for region in regions)
+
+    # Unknown regions are never destructively cleaned by default.
+    clean = client.post(f"/api/pages/{page_id}/clean")
+    assert clean.status_code == 409
+
+    # Once explicitly classified, cleanup persists masks and consumes them.
+    for region in regions:
+        response = client.patch(f"/api/regions/{region['id']}", json={"region_type": "dialogue"})
+        assert response.status_code == 200
+
     clean = client.post(f"/api/pages/{page_id}/clean")
     assert clean.status_code == 200
     assert clean.json()["clean_asset"].startswith("derived/clean/")
-    clean_asset = client.get(f"/api/pages/{page_id}/clean-asset")
-    assert clean_asset.status_code == 200
-    assert clean_asset.headers["content-type"].startswith("image/")
+    assert client.get(f"/api/pages/{page_id}/clean-asset").status_code == 200
+
+    cleaned_regions = client.get(f"/api/pages/{page_id}/regions").json()
+    assert all(region["mask_asset"].startswith("derived/masks/") for region in cleaned_regions)
+    for region in cleaned_regions:
+        mask = client.get(f"/api/regions/{region['id']}/mask-asset")
+        assert mask.status_code == 200
+        assert mask.headers["content-type"].startswith("image/png")
+
+
+def test_sfx_is_not_cleaned_even_when_other_regions_are(client: TestClient) -> None:
+    _, page_id = setup_page(client)
+    dialogue = client.post(
+        f"/api/pages/{page_id}/regions",
+        json={"region_type": "dialogue", "geometry": [[360, 100], [500, 100], [500, 250], [360, 250]], "source_text": "hello", "reading_order": 1},
+    ).json()
+    sfx = client.post(
+        f"/api/pages/{page_id}/regions",
+        json={"region_type": "sfx", "geometry": [[40, 300], [200, 300], [200, 500], [40, 500]], "source_text": "ドン", "reading_order": 2},
+    ).json()
+
+    assert client.post(f"/api/pages/{page_id}/clean").status_code == 200
+    refreshed = {item["id"]: item for item in client.get(f"/api/pages/{page_id}/regions").json()}
+    assert refreshed[dialogue["id"]]["mask_asset"] is not None
+    assert refreshed[sfx["id"]]["mask_asset"] is None
