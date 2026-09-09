@@ -23,6 +23,11 @@ id = "P6-R01-C03"
 description = "Unknown and SFX regions are excluded from automatic localization"
 evidence = ["test"]
 
+[[requirements.checks]]
+id = "P6-R01-C04"
+description = "Locale completion totals exclude unknown and SFX regions that are not automatically translatable"
+evidence = ["test"]
+
 [[requirements]]
 id = "P6-R02"
 title = "Derived-state invalidation"
