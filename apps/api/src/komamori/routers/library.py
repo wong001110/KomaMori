@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ..autofit import layout_payload
 from ..db import get_session
 from ..models import Chapter, Localization, Page, Series, TextRegion
+from ..region_types import CLEANABLE_REGION_TYPES
 from ..schemas import ChapterCreate, ChapterDetail, ChapterRead, ImportResult, PageRead, SeriesCreate, SeriesDetail, SeriesRead, TextRegionCreate, TextRegionRead, TextRegionUpdate
 from ..storage import AssetStore, get_asset_store, unpack_uploads
 
@@ -106,8 +107,17 @@ def list_regions(page_id: int, session: Session = Depends(get_session)) -> list[
 
 
 @router.post("/pages/{page_id}/regions", response_model=TextRegionRead, status_code=status.HTTP_201_CREATED)
-def create_region(page_id: int, payload: TextRegionCreate, session: Session = Depends(get_session)) -> TextRegion:
-    _get_or_404(session, Page, page_id)
+def create_region(
+    page_id: int,
+    payload: TextRegionCreate,
+    session: Session = Depends(get_session),
+    assets: AssetStore = Depends(get_asset_store),
+) -> TextRegion:
+    page = _get_or_404(session, Page, page_id)
+    if payload.region_type in CLEANABLE_REGION_TYPES and page.clean_asset:
+        assets.delete(page.clean_asset)
+        page.clean_asset = None
+        page.processing_status = "analyzed"
     region = TextRegion(page_id=page_id, **payload.model_dump())
     session.add(region)
     session.commit()
