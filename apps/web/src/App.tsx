@@ -1,5 +1,9 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, Chapter, ChapterDetail, Series, SeriesDetail } from "./api";
+import { Reader } from "./Reader";
+import { Workbench } from "./Workbench";
+
+type Mode = "library" | "workbench" | "reader";
 
 function EmptyLibrary() {
   return (
@@ -15,15 +19,16 @@ export default function App() {
   const [series, setSeries] = useState<Series[]>([]);
   const [selectedSeries, setSelectedSeries] = useState<SeriesDetail | null>(null);
   const [selectedChapter, setSelectedChapter] = useState<ChapterDetail | null>(null);
+  const [mode, setMode] = useState<Mode>("library");
+  const [locale, setLocale] = useState("en");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refreshSeries = async () => {
     const next = await api.listSeries();
     setSeries(next);
-    if (selectedSeries) {
-      setSelectedSeries(await api.getSeries(selectedSeries.id));
-    }
+    if (selectedSeries) setSelectedSeries(await api.getSeries(selectedSeries.id));
+    if (selectedChapter) setSelectedChapter(await api.getChapter(selectedChapter.id));
   };
 
   useEffect(() => {
@@ -35,6 +40,31 @@ export default function App() {
     [selectedSeries, selectedChapter]
   );
 
+  if (mode === "workbench" && selectedChapter && selectedSeries) {
+    return (
+      <Workbench
+        chapterId={selectedChapter.id}
+        seriesId={selectedSeries.id}
+        initialLocale={locale}
+        onLocaleChange={setLocale}
+        onBack={() => { setMode("library"); refreshSeries().catch(() => undefined); }}
+        onReader={() => setMode("reader")}
+      />
+    );
+  }
+
+  if (mode === "reader" && selectedChapter) {
+    return (
+      <Reader
+        chapterId={selectedChapter.id}
+        initialLocale={locale}
+        onLocaleChange={setLocale}
+        onBack={() => setMode("library")}
+        onEdit={() => setMode("workbench")}
+      />
+    );
+  }
+
   const createSeries = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -42,8 +72,10 @@ export default function App() {
     setError(null);
     try {
       const created = await api.createSeries(String(form.get("title")), String(form.get("sourceLanguage")));
-      await refreshSeries();
+      const next = await api.listSeries();
+      setSeries(next);
       setSelectedSeries(await api.getSeries(created.id));
+      setSelectedChapter(null);
       event.currentTarget.reset();
     } catch (reason) {
       setError(String(reason));
@@ -53,8 +85,13 @@ export default function App() {
   };
 
   const chooseSeries = async (item: Series) => {
-    setSelectedSeries(await api.getSeries(item.id));
-    setSelectedChapter(null);
+    setError(null);
+    try {
+      setSelectedSeries(await api.getSeries(item.id));
+      setSelectedChapter(null);
+    } catch (reason) {
+      setError(String(reason));
+    }
   };
 
   const createChapter = async (event: FormEvent<HTMLFormElement>) => {
@@ -62,12 +99,9 @@ export default function App() {
     if (!selectedSeries) return;
     const form = new FormData(event.currentTarget);
     setBusy(true);
+    setError(null);
     try {
-      const chapter = await api.createChapter(
-        selectedSeries.id,
-        String(form.get("title")),
-        Number(form.get("number"))
-      );
+      const chapter = await api.createChapter(selectedSeries.id, String(form.get("title")), Number(form.get("number")));
       setSelectedSeries(await api.getSeries(selectedSeries.id));
       setSelectedChapter(await api.getChapter(chapter.id));
       event.currentTarget.reset();
@@ -78,7 +112,14 @@ export default function App() {
     }
   };
 
-  const chooseChapter = async (chapter: Chapter) => setSelectedChapter(await api.getChapter(chapter.id));
+  const chooseChapter = async (chapter: Chapter) => {
+    setError(null);
+    try {
+      setSelectedChapter(await api.getChapter(chapter.id));
+    } catch (reason) {
+      setError(String(reason));
+    }
+  };
 
   const importPages = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -87,6 +128,7 @@ export default function App() {
     const files = Array.from(input.files ?? []);
     if (!files.length) return;
     setBusy(true);
+    setError(null);
     try {
       await api.importChapter(selectedChapter.id, files);
       setSelectedChapter(await api.getChapter(selectedChapter.id));
@@ -100,18 +142,22 @@ export default function App() {
   };
 
   return (
-    <main className="shell">
-      <header className="topbar">
+    <main className="app-shell library-shell">
+      <header className="app-header library-header">
         <div>
-          <span className="eyebrow">KomaMori</span>
-          <h1>Manga, tended into many languages.</h1>
+          <div className="brand-row"><span className="brand-mark">こ</span><strong>KomaMori</strong></div>
+          <span className="eyebrow">Private manga garden</span>
         </div>
-        <span className="phase-pill">Structured core</span>
+        <div className="library-hero">
+          <h1>Grow one manga source into many languages.</h1>
+          <p>Import once, preserve the original, then OCR, clean, localize, review and read from the same structured chapter.</p>
+        </div>
+        <span className="phase-pill">MVP workbench</span>
       </header>
 
       {error && <div className="error-banner">{error}</div>}
 
-      <section className="workspace">
+      <section className="library-grid">
         <aside className="panel library-panel">
           <div className="panel-heading">
             <div><span className="kicker">Library</span><h2>Series</h2></div>
@@ -170,21 +216,31 @@ export default function App() {
 
         <aside className="panel detail-panel">
           {!selectedChapter ? (
-            <div className="placeholder">Select a chapter to import pages.</div>
+            <div className="placeholder">Select a chapter to import or localize.</div>
           ) : (
             <>
               <div className="panel-heading compact">
                 <div><span className="kicker">Chapter {selectedChapter.number}</span><h2>{selectedChapter.title}</h2></div>
               </div>
-              {!selectedChapter.pages.length && (
+              {!selectedChapter.pages.length ? (
                 <form className="upload-box" onSubmit={importPages}>
                   <input name="pages" type="file" accept=".cbz,.zip,image/png,image/jpeg,image/webp" multiple required />
                   <button disabled={busy}>Import pages / CBZ</button>
                 </form>
+              ) : (
+                <div className="launch-card">
+                  <span className="leaf">✦</span>
+                  <strong>{selectedChapter.pages.length} pages ready</strong>
+                  <p>Continue in the workbench to detect text, clean pages, translate, review and approve.</p>
+                  <div className="launch-actions">
+                    <button onClick={() => setMode("workbench")}>Open workbench</button>
+                    <button className="secondary" onClick={() => setMode("reader")}>Read {locale}</button>
+                  </div>
+                </div>
               )}
               <div className="page-list">
-                {selectedChapter.pages.map((page) => (
-                  <a className="page-row" href={`/api/pages/${page.id}/asset`} target="_blank" key={page.id}>
+                {selectedChapter.pages.slice(0, 8).map((page) => (
+                  <a className="page-row" href={`/api/pages/${page.id}/asset`} target="_blank" rel="noreferrer" key={page.id}>
                     <span>{String(page.page_index).padStart(2, "0")}</span>
                     <strong>{page.width} × {page.height}</strong>
                   </a>

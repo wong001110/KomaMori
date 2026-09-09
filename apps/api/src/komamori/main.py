@@ -10,6 +10,7 @@ from .db import Base, engine
 from .routers.library import router as library_router
 from .routers.localization import router as localization_router
 from .routers.processing import router as processing_router
+from .routers.workbench import router as workbench_router
 from .schemas import HealthResponse
 
 
@@ -27,6 +28,7 @@ app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), al
 app.include_router(library_router)
 app.include_router(processing_router)
 app.include_router(localization_router)
+app.include_router(workbench_router)
 
 
 @app.get("/api/health", response_model=HealthResponse)
