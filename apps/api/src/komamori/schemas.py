@@ -19,6 +19,11 @@ class SeriesCreate(BaseModel):
     source_language: str = Field(default="ja", min_length=2, max_length=32)
 
 
+class SeriesUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    source_language: str | None = Field(default=None, min_length=2, max_length=32)
+
+
 class SeriesRead(ORMModel):
     id: int
     title: str
@@ -28,6 +33,11 @@ class SeriesRead(ORMModel):
 class ChapterCreate(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     number: float
+
+
+class ChapterUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    number: float | None = None
 
 
 class ChapterRead(ORMModel):
@@ -191,11 +201,15 @@ class BatchCleanResult(BaseModel):
     pages_skipped: int
 
 
+LocaleReadiness = Literal["in-progress", "review", "ready"]
+
+
 class LocaleSummary(BaseModel):
     locale: str
     translated: int
     approved: int
     total_regions: int
+    status: LocaleReadiness
 
 
 class RegionLocalizationView(BaseModel):
