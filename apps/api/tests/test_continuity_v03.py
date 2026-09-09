@@ -58,6 +58,29 @@ evidence = ["test", "review"]
 '''
 
 
+def manifest_without_requirement() -> str:
+    return '''manifest_version = 2
+id = "phase-10"
+project = "komamori"
+title = "Continuity v0.3"
+
+[[sources]]
+id = "FND-10-001"
+kind = "reviewer"
+summary = "Ready semantics must be safe"
+description = "Unknown regions must not silently produce Ready"
+severity = "P0"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[invariants]]
+id = "INV-READY-001"
+description = "Ready cannot coexist with unresolved source review"
+severity = "P0"
+status = "retired"
+'''
+
+
 def write_manifest(tmp_path: Path, *, mapped: bool = True) -> Path:
     path = tmp_path / "phase-10.toml"
     path.write_text(manifest_text(mapped=mapped), encoding="utf-8")
@@ -127,6 +150,30 @@ def test_capture_gate_requires_invariant_check_mapping(tmp_path: Path) -> None:
     manifest = write_manifest(tmp_path)
     continuity.sync_manifest(db, manifest, "scope")
     assert continuity.capture_gate(db, "phase-10")["status"] == "passed"
+
+
+def test_verified_finding_survives_manifest_resync(tmp_path: Path) -> None:
+    db = tmp_path / "state.db"
+    manifest = write_manifest(tmp_path)
+    continuity.sync_manifest(db, manifest, "scope")
+    continuity.finding_state(db, "FND-10-001", "verified", None, None)
+    continuity.sync_manifest(db, manifest, "same-scope")
+    with sqlite3.connect(db) as conn:
+        status = conn.execute("SELECT status FROM review_findings WHERE finding_key='FND-10-001'").fetchone()[0]
+    assert status == "verified"
+
+
+def test_historical_mapping_to_inactive_requirement_does_not_satisfy_capture(tmp_path: Path) -> None:
+    db = tmp_path / "state.db"
+    manifest = write_manifest(tmp_path)
+    continuity.sync_manifest(db, manifest, "scope-a")
+    assert continuity.capture_gate(db, "phase-10")["status"] == "passed"
+
+    manifest.write_text(manifest_without_requirement(), encoding="utf-8")
+    continuity.sync_manifest(db, manifest, "scope-b")
+    failed = continuity.capture_gate(db, "phase-10")
+    assert failed["status"] == "failed"
+    assert any(item["id"] == "FND-10-001" and "active current requirement" in item["reason"] for item in failed["failures"])
 
 
 def test_impacted_change_stales_evidence_until_reverified(tmp_path: Path) -> None:
@@ -199,15 +246,22 @@ def test_legacy_v02_cli_cannot_bypass_v03_fresh_review_guard(tmp_path: Path) -> 
     base.set_phase(db, "phase-10", "Continuity v0.3", "completed", commit_sha="commit-a")
 
 
-def test_fresh_review_cannot_be_recorded_before_completion_gate(tmp_path: Path) -> None:
+def test_passing_fresh_review_cannot_precede_completion_gate(tmp_path: Path) -> None:
     db = tmp_path / "state.db"
     manifest = write_manifest(tmp_path)
     seed(db, manifest)
     assert continuity.capture_gate(db, "phase-10")["status"] == "passed"
     continuity.finding_state(db, "FND-10-001", "verified", None, None)
 
-    with pytest.raises(sqlite3.IntegrityError, match="fresh review requires a passing completion gate"):
-        continuity.review_gate(db, "phase-10", "commit-a", [])
+    failed = continuity.review_gate(db, "phase-10", "commit-a", [])
+    assert failed["status"] == "failed"
+    assert "completion-gate" in failed["unresolved_findings"]
+
+    with sqlite3.connect(db) as conn, pytest.raises(sqlite3.IntegrityError, match="fresh review requires a passing completion gate"):
+        conn.execute(
+            """INSERT INTO fresh_review_gate_runs(phase_key,commit_sha,status,new_findings_json,unresolved_findings_json,created_at)
+               VALUES('phase-10','commit-a','passed','[]','[]','now')"""
+        )
 
     prove(db)
     assert continuity.gate(db, "phase-10", "commit-a")["status"] == "passed"
