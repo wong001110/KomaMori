@@ -92,6 +92,15 @@ disposition = "mapped"
 finding_status = "mapped"
 
 [[sources]]
+id = "FND-10-010"
+kind = "reviewer"
+summary = "A new fresh-review finding does not invalidate old capture/completion authority"
+description = "Registering a material finding or changing its scope disposition must invalidate prior capture authority; later completion/review gates must occur after the latest successful recapture."
+severity = "P0"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
 id = "SRC-10-002"
 kind = "user"
 summary = "Execute the KomaMori reliability fixes found by the latest reviewer pass"
@@ -179,7 +188,7 @@ evidence = ["test", "review"]
 id = "P10-R03"
 title = "Mandatory fresh reviewer gate for Execute mode"
 disposition = "required"
-source_refs = ["FND-10-005", "FND-10-006", "FND-10-007", "SRC-10-001"]
+source_refs = ["FND-10-005", "FND-10-006", "FND-10-007", "FND-10-010", "SRC-10-001"]
 
 [requirements.impacts]
 domains = ["execute-mode", "review-gate"]
@@ -203,7 +212,12 @@ evidence = ["test", "review"]
 
 [[requirements.checks]]
 id = "P10-R03-C04"
-description = "A Fresh Reviewer Gate cannot be recorded before a passing Completion Gate exists for the current manifest and same commit"
+description = "A passing Fresh Reviewer Gate cannot be recorded before a passing Completion Gate exists for the current manifest and same commit"
+evidence = ["test", "review"]
+
+[[requirements.checks]]
+id = "P10-R03-C05"
+description = "Registering a new material reviewer finding or changing its scope disposition invalidates prior capture authority until recapture; accepted completion/review must be newer than that recapture"
 evidence = ["test", "review"]
 
 [[requirements]]
