@@ -1,17 +1,56 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..autofit import layout_payload
 from ..db import get_session
 from ..models import ApprovedTranslation, Chapter, Localization, LocalizationTerm, Page, Series, TextRegion
+from ..quality import chapter_qa_issues, locked_terms_for_source, terms_for
 from ..region_types import TRANSLATABLE_REGION_TYPES
-from ..schemas import ApprovalResult, LocalizationRead, LocalizationTermCreate, LocalizationTermRead, LocalizationUpsert, LocalizeChapterRequest, LocalizeChapterResult, QAIssue, QAResult
+from ..schemas import ApprovalResult, LocalizationRead, LocalizationTermCreate, LocalizationTermRead, LocalizationUpsert, LocalizeChapterRequest, LocalizeChapterResult, QAResult
 from ..translation import TranslationProvider, TranslationRequest, get_translation_provider
 
 router = APIRouter(prefix="/api", tags=["localization"])
+
+
+def _invalidate_locale_policy(session: Session, series_id: int, locale: str) -> None:
+    localizations = list(
+        session.scalars(
+            select(Localization)
+            .join(TextRegion, Localization.text_region_id == TextRegion.id)
+            .join(Page, TextRegion.page_id == Page.id)
+            .join(Chapter, Page.chapter_id == Chapter.id)
+            .where(Chapter.series_id == series_id, Localization.locale == locale)
+        )
+    )
+    for localization in localizations:
+        localization.status = "needs-review"
+    session.execute(
+        delete(ApprovedTranslation).where(
+            ApprovedTranslation.series_id == series_id,
+            ApprovedTranslation.locale == locale,
+        )
+    )
+
+
+def _clear_approved_memory_for_region(session: Session, region: TextRegion, locale: str) -> None:
+    if not region.source_text.strip():
+        return
+    page = session.get(Page, region.page_id)
+    if page is None:
+        return
+    chapter = session.get(Chapter, page.chapter_id)
+    if chapter is None:
+        return
+    session.execute(
+        delete(ApprovedTranslation).where(
+            ApprovedTranslation.series_id == chapter.series_id,
+            ApprovedTranslation.locale == locale,
+            ApprovedTranslation.source_text == region.source_text,
+        )
+    )
 
 
 @router.get("/series/{series_id}/terms", response_model=list[LocalizationTermRead])
@@ -28,18 +67,35 @@ def list_terms(series_id: int, locale: str | None = None, session: Session = Dep
 def create_term(series_id: int, payload: LocalizationTermCreate, session: Session = Depends(get_session)):
     if session.get(Series, series_id) is None:
         raise HTTPException(status_code=404, detail="Series not found")
-    existing = session.scalar(select(LocalizationTerm).where(LocalizationTerm.series_id == series_id, LocalizationTerm.locale == payload.locale, LocalizationTerm.source == payload.source))
+    existing = session.scalar(
+        select(LocalizationTerm).where(
+            LocalizationTerm.series_id == series_id,
+            LocalizationTerm.locale == payload.locale,
+            LocalizationTerm.source == payload.source,
+        )
+    )
     if existing:
+        policy_changed = (
+            existing.target != payload.target
+            or list(existing.aliases or []) != list(payload.aliases)
+            or existing.locked != payload.locked
+            or existing.term_type != payload.term_type
+        )
         existing.target = payload.target
         existing.term_type = payload.term_type
         existing.aliases = payload.aliases
         existing.locked = payload.locked
         existing.notes = payload.notes
+        if policy_changed:
+            _invalidate_locale_policy(session, series_id, payload.locale)
         session.commit()
         session.refresh(existing)
         return existing
+
     term = LocalizationTerm(series_id=series_id, **payload.model_dump())
     session.add(term)
+    if term.locked:
+        _invalidate_locale_policy(session, series_id, payload.locale)
     session.commit()
     session.refresh(term)
     return term
@@ -57,7 +113,12 @@ def upsert_localization(region_id: int, locale: str, payload: LocalizationUpsert
     region = session.get(TextRegion, region_id)
     if region is None:
         raise HTTPException(status_code=404, detail="Text region not found")
-    localization = session.scalar(select(Localization).where(Localization.text_region_id == region_id, Localization.locale == locale))
+    localization = session.scalar(
+        select(Localization).where(
+            Localization.text_region_id == region_id,
+            Localization.locale == locale,
+        )
+    )
     computed_layout = payload.layout or layout_payload(payload.text, region.geometry)
     if localization is None:
         effective_status = "needs-review" if payload.status == "approved" else payload.status
@@ -72,6 +133,7 @@ def upsert_localization(region_id: int, locale: str, payload: LocalizationUpsert
         session.add(localization)
     else:
         text_changed = localization.text != payload.text
+        was_approved = localization.status == "approved"
         if text_changed:
             effective_status = "needs-review"
         elif payload.status == "approved" and localization.status != "approved":
@@ -82,40 +144,33 @@ def upsert_localization(region_id: int, locale: str, payload: LocalizationUpsert
         localization.status = effective_status
         localization.source = "manual"
         localization.layout = computed_layout
+        if text_changed and was_approved:
+            _clear_approved_memory_for_region(session, region, locale)
     session.commit()
     session.refresh(localization)
     return localization
 
 
-def _terms_for(session: Session, series_id: int, locale: str) -> list[LocalizationTerm]:
-    return list(session.scalars(select(LocalizationTerm).where(LocalizationTerm.series_id == series_id, LocalizationTerm.locale == locale)))
-
-
-def _term_variants(term: LocalizationTerm) -> list[str]:
-    variants = [term.source, *(term.aliases or [])]
-    return list(dict.fromkeys(value.strip() for value in variants if value and value.strip()))
-
-
-def _locked_terms_for_source(terms: list[LocalizationTerm], source_text: str) -> dict[str, str]:
-    locked: dict[str, str] = {}
-    for term in terms:
-        if not term.locked:
-            continue
-        for variant in _term_variants(term):
-            if variant in source_text:
-                locked[variant] = term.target
-    return locked
-
-
 @router.post("/chapters/{chapter_id}/localize/{locale}", response_model=LocalizeChapterResult)
-def localize_chapter(chapter_id: int, locale: str, payload: LocalizeChapterRequest, session: Session = Depends(get_session), provider: TranslationProvider = Depends(get_translation_provider)) -> LocalizeChapterResult:
+def localize_chapter(
+    chapter_id: int,
+    locale: str,
+    payload: LocalizeChapterRequest,
+    session: Session = Depends(get_session),
+    provider: TranslationProvider = Depends(get_translation_provider),
+) -> LocalizeChapterResult:
     chapter = session.get(Chapter, chapter_id)
     if chapter is None:
         raise HTTPException(status_code=404, detail="Chapter not found")
     series = session.get(Series, chapter.series_id)
     assert series is not None
-    terms = _terms_for(session, series.id, locale)
-    rows = session.execute(select(TextRegion, Page).join(Page, TextRegion.page_id == Page.id).where(Page.chapter_id == chapter_id).order_by(Page.page_index, TextRegion.reading_order, TextRegion.id)).all()
+    terms = terms_for(session, series.id, locale)
+    rows = session.execute(
+        select(TextRegion, Page)
+        .join(Page, TextRegion.page_id == Page.id)
+        .where(Page.chapter_id == chapter_id)
+        .order_by(Page.page_index, TextRegion.reading_order, TextRegion.id)
+    ).all()
 
     created = reused = skipped = 0
     history: list[str] = []
@@ -123,12 +178,23 @@ def localize_chapter(chapter_id: int, locale: str, payload: LocalizeChapterReque
         if region.region_type not in TRANSLATABLE_REGION_TYPES or not region.source_text.strip():
             skipped += 1
             continue
-        existing = session.scalar(select(Localization).where(Localization.text_region_id == region.id, Localization.locale == locale))
+        existing = session.scalar(
+            select(Localization).where(
+                Localization.text_region_id == region.id,
+                Localization.locale == locale,
+            )
+        )
         if existing is not None and not payload.overwrite:
             history.append(region.source_text)
             skipped += 1
             continue
-        approved = session.scalar(select(ApprovedTranslation).where(ApprovedTranslation.series_id == series.id, ApprovedTranslation.locale == locale, ApprovedTranslation.source_text == region.source_text))
+        approved = session.scalar(
+            select(ApprovedTranslation).where(
+                ApprovedTranslation.series_id == series.id,
+                ApprovedTranslation.locale == locale,
+                ApprovedTranslation.source_text == region.source_text,
+            )
+        )
         if approved:
             translated = approved.target_text
             source = "approved-memory"
@@ -140,7 +206,7 @@ def localize_chapter(chapter_id: int, locale: str, payload: LocalizeChapterReque
                     source_language=series.source_language,
                     target_locale=locale,
                     nearby_context=history[-payload.context_regions :] if payload.context_regions else [],
-                    locked_terms=_locked_terms_for_source(terms, region.source_text),
+                    locked_terms=locked_terms_for_source(terms, region.source_text),
                 )
             )
             source = "machine"
@@ -148,7 +214,15 @@ def localize_chapter(chapter_id: int, locale: str, payload: LocalizeChapterReque
         layout = layout_payload(translated, region.geometry)
         quality = {"fitStatus": layout.get("fitStatus")}
         if existing is None:
-            existing = Localization(text_region_id=region.id, locale=locale, text=translated, status="needs-review", source=source, quality_metadata=quality, layout=layout)
+            existing = Localization(
+                text_region_id=region.id,
+                locale=locale,
+                text=translated,
+                status="needs-review",
+                source=source,
+                quality_metadata=quality,
+                layout=layout,
+            )
             session.add(existing)
         else:
             existing.text = translated
@@ -168,36 +242,7 @@ def qa_chapter(chapter_id: int, locale: str, session: Session = Depends(get_sess
     chapter = session.get(Chapter, chapter_id)
     if chapter is None:
         raise HTTPException(status_code=404, detail="Chapter not found")
-    terms = _terms_for(session, chapter.series_id, locale)
-    issues: list[QAIssue] = []
-    rows = session.execute(select(TextRegion, Page).join(Page, TextRegion.page_id == Page.id).where(Page.chapter_id == chapter_id).order_by(Page.page_index, TextRegion.reading_order)).all()
-    for region, page in rows:
-        if region.region_type not in TRANSLATABLE_REGION_TYPES:
-            continue
-        loc = session.scalar(select(Localization).where(Localization.text_region_id == region.id, Localization.locale == locale))
-        if loc is None or not loc.text.strip():
-            issues.append(QAIssue(code="untranslated", severity="error", page_id=page.id, region_id=region.id, message="Region has no translation"))
-            continue
-        if region.ocr_confidence is not None and region.ocr_confidence < 0.65:
-            issues.append(QAIssue(code="low-ocr-confidence", severity="warning", page_id=page.id, region_id=region.id, localization_id=loc.id, message=f"OCR confidence is {region.ocr_confidence:.2f}"))
-        for term in terms:
-            if not term.locked:
-                continue
-            matched = [variant for variant in _term_variants(term) if variant in region.source_text]
-            if matched and term.target not in loc.text:
-                issues.append(
-                    QAIssue(
-                        code="locked-term",
-                        severity="error",
-                        page_id=page.id,
-                        region_id=region.id,
-                        localization_id=loc.id,
-                        message=f"Locked term '{term.source}' (matched '{matched[0]}') must use '{term.target}'",
-                    )
-                )
-        if loc.layout.get("fitStatus") == "poor-fit":
-            issues.append(QAIssue(code="poor-fit", severity="warning", page_id=page.id, region_id=region.id, localization_id=loc.id, message="Translation does not fit the current region at the minimum font size"))
-    return QAResult(chapter_id=chapter.id, locale=locale, issues=issues)
+    return QAResult(chapter_id=chapter.id, locale=locale, issues=chapter_qa_issues(session, chapter, locale))
 
 
 @router.post("/localizations/{localization_id}/approve", response_model=ApprovalResult)
@@ -205,6 +250,8 @@ def approve_localization(localization_id: int, session: Session = Depends(get_se
     loc = session.get(Localization, localization_id)
     if loc is None:
         raise HTTPException(status_code=404, detail="Localization not found")
+    if not loc.text.strip():
+        raise HTTPException(status_code=409, detail="Cannot approve an empty localization")
     region = session.get(TextRegion, loc.text_region_id)
     assert region is not None
     page = session.get(Page, region.page_id)
@@ -212,11 +259,22 @@ def approve_localization(localization_id: int, session: Session = Depends(get_se
     chapter = session.get(Chapter, page.chapter_id)
     assert chapter is not None
     loc.status = "approved"
-    remembered = bool(region.source_text.strip() and loc.text.strip())
+    remembered = bool(region.source_text.strip())
     if remembered:
-        approved = session.scalar(select(ApprovedTranslation).where(ApprovedTranslation.series_id == chapter.series_id, ApprovedTranslation.locale == loc.locale, ApprovedTranslation.source_text == region.source_text))
+        approved = session.scalar(
+            select(ApprovedTranslation).where(
+                ApprovedTranslation.series_id == chapter.series_id,
+                ApprovedTranslation.locale == loc.locale,
+                ApprovedTranslation.source_text == region.source_text,
+            )
+        )
         if approved is None:
-            approved = ApprovedTranslation(series_id=chapter.series_id, locale=loc.locale, source_text=region.source_text, target_text=loc.text)
+            approved = ApprovedTranslation(
+                series_id=chapter.series_id,
+                locale=loc.locale,
+                source_text=region.source_text,
+                target_text=loc.text,
+            )
             session.add(approved)
         else:
             approved.target_text = loc.text
