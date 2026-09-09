@@ -65,7 +65,7 @@ PR #6
 - completeness-aware bootstrap
 - backward-compatible v0.1 state upgrade
 
-This phase changed continuity from “resume where execution stopped” to “resume without silently dropping promised work.”
+This phase changed continuity from “resume where execution stopped” to “resume without silently dropping promised work already captured in scope.”
 
 ### Phase 6 — Data integrity + safe processing ✅
 PR #7
@@ -101,23 +101,47 @@ PR #9
 - per-locale `in-progress` / `review` / `ready` readiness
 - readiness surfaced in Reader
 
-### Phase 9 — Verification + localization correctness
+### Phase 9 — Verification + localization correctness ✅
 PR #10
-
-Scope:
 
 - actionable default Tesseract confidence from word-level OCR confidence
 - locked terminology aliases in translation and deterministic QA
 - Workbench alias configuration/review
 - real full-stack Playwright browser workflow
-- final README / architecture / roadmap alignment
-- final Agent Continuity completeness audit
+- README / architecture / roadmap alignment
+- Agent Continuity v0.2 completeness audit
+- backend pytest, frontend production build, container build and Playwright E2E verified on the accepted tree
 
-Completion criterion:
+### Phase 10 — Agent Continuity v0.3 + Execute reviewer loop ✅
+PR #11
 
-- backend pytest, frontend production build, container build and Playwright E2E all pass on the same exact head
-- every `P9-*` check has required evidence
-- v0.2 completion gate passes before merge and again against the tree-equivalent squash merge commit
+- durable `ScopeSource` and `ReviewFinding` capture before requirement compression
+- cross-cutting invariant registry
+- Scope Capture Gate before broad implementation
+- impacted-module evidence staleness
+- mandatory Fresh Reviewer Gate after completion evidence
+- new reviewer findings invalidate earlier gate authority and require recapture/reverification
+- SQLite-level finalization guards prevent the legacy v0.2 CLI from bypassing v0.3 gates
+- `scope-complete` is explicitly distinct from `defect-free`
+- fixed the RegionEditor operation-feedback race surfaced by the fresh-review/E2E loop
+
+### Phase 11 — Integrity & release semantics 🚧
+PR #12
+
+Current required scope:
+
+- commit-safe DB/filesystem mutation ordering: prefer recoverable orphan files over dangling durable references
+- fail-safe re-analysis and unique generated mask/clean assets
+- source-review + deterministic-QA publication gate for locale `Ready`
+- nonempty approval and reuse-memory safety
+- page replace/delete/reorder recovery lifecycle and Library controls
+- terminology-policy invalidation of approvals/reuse memory
+- upload page/byte/uncompressed/pixel preflight limits
+- file-backed SQLite foreign keys + WAL + bounded busy timeout
+- localhost-only default Compose exposure
+- backend invariant regression tests + negative browser release tests
+
+Phase 11 is not complete until its current manifest passes Scope Capture, Completion and Fresh Reviewer gates on the accepted commit and the squash merge is reconciled.
 
 ## Explicitly unfinished engineering
 
@@ -130,6 +154,11 @@ These are tracked future work, not missing hidden scope:
 - measured/polygon-aware typography and layout
 - translation ↔ layout automatic shortening loop
 - optional pre-rendered localized-page cache + invalidation
+- orphan-asset audit/GC for files left behind when post-commit best-effort cleanup is interrupted
+- deterministic frontend dependency locking / `npm ci` hardening
+- OCR/LLM/prompt provenance for repeatable model benchmarking
+- chapter display-number / sort-order data-model redesign
+- repository branch protection / required-check policy when an administration-capable GitHub boundary is available
 
 ## Research track
 

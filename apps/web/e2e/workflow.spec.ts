@@ -1,6 +1,6 @@
 import { deflateSync } from "node:zlib";
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 function crc32(buffer: Buffer): number {
   let crc = 0xffffffff;
@@ -26,15 +26,15 @@ function whitePng(width: number, height: number): Buffer {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 2; // truecolor RGB
+  ihdr[8] = 8;
+  ihdr[9] = 2;
   ihdr[10] = 0;
   ihdr[11] = 0;
   ihdr[12] = 0;
 
   const stride = width * 3 + 1;
   const raw = Buffer.alloc(stride * height, 255);
-  for (let y = 0; y < height; y += 1) raw[y * stride] = 0; // PNG filter byte
+  for (let y = 0; y < height; y += 1) raw[y * stride] = 0;
 
   return Buffer.concat([
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
@@ -46,18 +46,16 @@ function whitePng(width: number, height: number): Buffer {
 
 const WHITE_PAGE = whitePng(320, 480);
 
-test("manual localization reaches a Ready reader from the real UI", async ({ page }) => {
+async function openFreshWorkbench(page: Page, seriesTitle: string, chapterNumber: string) {
   await page.goto("/");
-
-  await page.getByPlaceholder("Series title").fill("E2E Series");
+  await page.getByPlaceholder("Series title").fill(seriesTitle);
   await page.getByLabel("Source language").fill("ja");
   await page.locator("form.stack-form").getByRole("button", { name: "Add" }).click();
-  await expect(page.getByRole("heading", { name: "E2E Series" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: seriesTitle })).toBeVisible();
 
-  await page.locator("form.chapter-form input[name=number]").fill("1");
-  await page.getByPlaceholder("Chapter title").fill("Chapter 1");
+  await page.locator("form.chapter-form input[name=number]").fill(chapterNumber);
+  await page.getByPlaceholder("Chapter title").fill(`Chapter ${chapterNumber}`);
   await page.getByRole("button", { name: "Add chapter" }).click();
-
   await page.locator('input[name="pages"]').setInputFiles({
     name: "001.png",
     mimeType: "image/png",
@@ -66,8 +64,10 @@ test("manual localization reaches a Ready reader from the real UI", async ({ pag
   await page.getByRole("button", { name: "Import pages / CBZ" }).click();
   await expect(page.getByText("1 pages ready")).toBeVisible();
   await page.getByRole("button", { name: "Open workbench" }).click();
-
   await expect(page.getByText("Localization workbench")).toBeVisible();
+}
+
+async function drawRegion(page: Page) {
   await page.getByRole("button", { name: "+ Add region" }).click();
   const stage = page.locator(".manga-stage");
   const box = await stage.boundingBox();
@@ -77,8 +77,13 @@ test("manual localization reaches a Ready reader from the real UI", async ({ pag
   await page.mouse.down();
   await page.mouse.move(box.x + box.width * 0.65, box.y + box.height * 0.42, { steps: 5 });
   await page.mouse.up();
-
   await expect(page.getByLabel("Type")).toBeVisible();
+}
+
+test("manual localization reaches a Ready reader from the real UI", async ({ page }) => {
+  await openFreshWorkbench(page, "E2E Series", "1");
+  await drawRegion(page);
+
   await page.getByLabel("Type").selectOption("dialogue");
   await page.getByLabel("Source OCR").fill("こんにちは");
   await page.getByLabel("en localization").fill("Hello from E2E");
@@ -90,4 +95,43 @@ test("manual localization reaches a Ready reader from the real UI", async ({ pag
   await page.getByRole("button", { name: "Read" }).click();
   await expect(page.locator(".readiness-badge")).toHaveText("Ready");
   await expect(page.locator(".reader-overlay")).toContainText("Hello from E2E");
+});
+
+test("an unresolved unknown region cannot present a locale as Ready", async ({ page }) => {
+  await openFreshWorkbench(page, "E2E Unknown Gate", "11");
+  await drawRegion(page);
+
+  await expect(page.getByLabel("Type")).toHaveValue("unknown");
+  await page.getByLabel("Source OCR").fill("未分類");
+  await page.getByLabel("en localization").fill("Unclassified");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Saved")).toBeVisible();
+  await page.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByText("Approved; release review still required")).toBeVisible();
+
+  await page.getByRole("button", { name: "Read" }).click();
+  await expect(page.locator(".readiness-badge")).toHaveText("Partial");
+  await expect(page.locator(".readiness-badge")).not.toHaveText("Ready");
+});
+
+test("a blocking locked-term QA error cannot present a locale as Ready", async ({ page }) => {
+  await openFreshWorkbench(page, "E2E QA Gate", "12");
+
+  await page.getByPlaceholder("Source term").fill("こんにちは");
+  await page.getByPlaceholder("en term").fill("Greetings");
+  await page.getByRole("button", { name: "Lock" }).click();
+  await expect(page.getByText("こんにちは")).toBeVisible();
+
+  await drawRegion(page);
+  await page.getByLabel("Type").selectOption("dialogue");
+  await page.getByLabel("Source OCR").fill("こんにちは");
+  await page.getByLabel("en localization").fill("Hello");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Saved")).toBeVisible();
+  await page.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByText("Approved; release review still required")).toBeVisible();
+
+  await page.getByRole("button", { name: "Read" }).click();
+  await expect(page.locator(".readiness-badge")).toHaveText("Review");
+  await expect(page.locator(".readiness-badge")).not.toHaveText("Ready");
 });

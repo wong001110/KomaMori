@@ -48,7 +48,7 @@ export function Reader({ chapterId, initialLocale, onLocaleChange, onBack, onEdi
       {error && <div className="error-banner reader-error">{error}</div>}
       {!showOriginal && readiness && readiness.status !== "ready" && (
         <div className="reader-readiness-note">
-          <strong>{readiness.status === "review" ? "Translation complete, approval pending." : "Partial localization."}</strong>
+          <strong>{readiness.status === "review" ? "Translation requires review before release." : "Partial or unresolved localization."}</strong>
           <span>{readiness.translated}/{readiness.total_regions} translated · {readiness.approved}/{readiness.total_regions} approved</span>
         </div>
       )}

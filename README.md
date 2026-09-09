@@ -8,9 +8,11 @@ KomaMori is a personal technical exploration project for manga localization and 
 
 ## What works today
 
-- image and CBZ/ZIP chapter import
+- image and CBZ/ZIP chapter import with bounded page/byte/pixel preflight
 - Series / Chapter create, edit and delete lifecycle
-- immutable original page assets with derived-asset cleanup on deletion
+- recoverable page replace, delete and reorder lifecycle
+- original assets are immutable once written; page replacement creates a new original path and invalidates obsolete page-bound state instead of overwriting the old file in place
+- derived-asset cleanup follows commit-safe ordering: durable DB state commits before old referenced files are removed
 - automatic OpenCV text-region detection + Tesseract OCR
 - Tesseract word-confidence aggregation exposed to deterministic QA when available
 - safe automatic detections: new detected regions begin as `unknown`, not assumed dialogue
@@ -27,18 +29,22 @@ KomaMori is a personal technical exploration project for manga localization and 
 - destructive cleanup and automatic localization restricted to explicit safe region types
 - per-series locked terminology with aliases
 - OpenAI-compatible LLM translation provider with nearby-dialogue context
-- exact reuse of approved translations
+- exact reuse of approved translations when the approval is eligible for reuse
+- terminology-policy changes invalidate affected review/reuse state
 - multiple target locales on one shared structured source
 - per-locale auto-fit metadata and poor-fit detection
-- deterministic QA for missing translations, terminology, provider OCR confidence and layout fit
+- deterministic QA for missing source/translation, terminology, provider OCR confidence and layout fit
 - manual translation editing, review and approval
-- per-locale readiness: `in-progress` / `review` / `ready`
+- publication-aware per-locale readiness: `in-progress` / `review` / `ready`
+- `Ready` requires resolved source classification, nonempty approved translations and zero blocking deterministic QA errors
 - multilingual Reader with Original / Localized switching and readiness disclosure
 - SQLite + local filesystem self-hosted persistence
+- file-backed SQLite uses foreign keys, WAL and a bounded busy timeout
 - versioned runtime database migration ledger
+- localhost-only Docker Compose web exposure by default
 - backend, frontend build, container build and browser E2E CI gates
 
-`unknown` and `sfx` regions are intentionally excluded from automatic cleanup/localization until explicitly handled. SFX reconstruction itself remains deferred.
+`unknown` and `sfx` regions are intentionally excluded from automatic cleanup/localization until explicitly handled. An unresolved `unknown` region also blocks locale `Ready`; a region explicitly classified as `sfx` does not. SFX reconstruction itself remains deferred.
 
 ## Core workflow
 
@@ -66,12 +72,16 @@ Persistent masks      Localization
                  ↓
              approval
                  ↓
+     publication readiness gate
+                 ↓
        Ready / review / partial
                  ↓
                Reader
 ```
 
-The original page remains immutable. Masks, clean pages, translations and layout are derived/reviewable state. Geometry/type changes invalidate affected clean/mask state, and source-text changes invalidate translation approval.
+Original asset files are never edited in place. A page replacement writes a new original asset, commits the new page identity/state, then best-effort removes obsolete old assets. Geometry/type changes invalidate affected clean/mask state, source-text changes invalidate translation approval/reuse state, and terminology-policy changes conservatively invalidate affected locale approval/reuse state.
+
+The cross-store failure rule is deliberate: **prefer a recoverable orphan file over a committed database reference to a file that was deleted before commit**. Interrupted post-commit cleanup may therefore leave an orphan asset; a future audit/GC command is tracked separately.
 
 ## Quick start — Docker Compose
 
@@ -89,6 +99,8 @@ Open:
 ```text
 http://localhost:8787
 ```
+
+The Compose port is bound to `127.0.0.1` by default. KomaMori does not currently provide built-in multi-user authentication; exposing it to a LAN or public network requires an explicit binding change plus access control supplied by the operator.
 
 Persistence:
 
@@ -109,7 +121,7 @@ KOMAMORI_LLM_API_KEY=...
 KOMAMORI_LLM_MODEL=...
 ```
 
-Without these variables, import, region editing, cleanup, manual localization, QA, approval and Reader workflows remain usable. Only **AI localize** requires a provider.
+Without these variables, import, page recovery, region editing, cleanup, manual localization, QA, approval and Reader workflows remain usable. Only **AI localize** requires a provider.
 
 Docker uses Tesseract Japanese OCR by default. Native development can optionally install the `mangaocr` extra and set `KOMAMORI_OCR_PROVIDER=mangaocr`. MangaOCR currently does not expose a confidence value through the KomaMori provider contract; confidence QA only runs when the selected provider returns confidence.
 
@@ -138,7 +150,7 @@ Vite proxies `/api` to `http://localhost:8000`.
 make test
 ```
 
-Browser workflow:
+Browser workflows:
 
 ```bash
 cd apps/web
@@ -151,7 +163,7 @@ Pull requests run:
 - backend pytest
 - TypeScript + Vite production build
 - Docker Compose configuration + API/Web image builds
-- Playwright full-stack browser workflow
+- Playwright full-stack browser workflows, including negative release invariants
 
 ## Current architecture
 
@@ -165,10 +177,10 @@ Library / Workbench / Reader
   ▼
 FastAPI modular monolith
   ├── SQLite structured data + migration ledger
-  ├── local original/derived assets
+  ├── local immutable-file asset store
   ├── OpenCV processing + persistent masks
   ├── Tesseract / optional MangaOCR
-  ├── deterministic QA
+  ├── deterministic QA / readiness gate
   └── OpenAI-compatible translation provider
 ```
 
@@ -178,7 +190,7 @@ Core model:
 Series
 └── Chapter
     └── Page
-        ├── OriginalAsset          immutable
+        ├── OriginalAsset          immutable file; replace creates a new path
         ├── CleanAsset?            derived
         └── TextRegion[]
             ├── type
@@ -202,11 +214,13 @@ Stable decisions live in deterministic data instead of asking a model to redisco
 
 ```text
 locked terms + aliases
-approved translations
+approved reusable translations
 source/target locale
 review status
 layout metadata
 ```
+
+`approved` and `reusable` are related but not identical. A human can mark a translation approved, while reuse memory is populated only for a translatable region with nonempty source text and no blocking deterministic QA error. This prevents unresolved/QA-invalid text from propagating through approved-memory reuse.
 
 Dynamic interpretation such as emotion, sarcasm or scene meaning is not modeled as a dedicated service. General LLM/VLM context experiments can be added later only if measured evaluation justifies them.
 
@@ -222,16 +236,23 @@ Dynamic interpretation such as emotion, sarcasm or scene meaning is not modeled 
 - poor-fit is detected, but automatic translation-shortening feedback is not closed-loop
 - processing actions are synchronous; there is no background job/progress system yet
 - Reader uses structured overlays; there is no pre-rendered localized page cache/invalidation layer
+- post-commit best-effort asset cleanup can leave orphan files if interrupted; audit/GC tooling is deferred
+- frontend dependency resolution is not yet lockfile-hardened
+- OCR/LLM/prompt provenance is not yet sufficient for repeatable model benchmarking
+- chapter display numbering still uses the current numeric model
+- repository branch protection / required CI enforcement is not configured through the current tool boundary
 - SFX reconstruction/style matching is deferred
-- no multi-user collaboration or public manga catalog
+- no built-in multi-user authentication, collaboration or public manga catalog
 
 These are explicit engineering/research targets, not hidden production claims.
 
 ## Agent Continuity experiment
 
-KomaMori is also the live test bed for **Agent Continuity**: disposable development sessions backed by GitHub for code/reviewable scope and an external SQLite execution-state snapshot.
+KomaMori is also the live test bed for **Agent Continuity v0.3**: disposable development sessions backed by GitHub for implementation/reviewable scope and an external SQLite execution-state snapshot.
 
-The current v0.2 protocol tracks stable Requirement / Acceptance Check IDs, commit-bound evidence, scope hashes and fail-closed completion gates so resumption preserves both **where execution stopped** and **what approved work remains**.
+The current protocol adds durable `ScopeSource` / `ReviewFinding` capture, cross-cutting invariants, a Scope Capture Gate, commit-bound acceptance evidence, change-impact staleness, a Completion Gate and a mandatory Fresh Reviewer Gate. A new material reviewer finding invalidates prior capture/completion authority until it is recaptured and reverified.
+
+In Execute mode, scope creation, checkpoints, PR creation and running CI are intermediate milestones rather than stopping conditions; absent a real blocker, execution carries through to verification/review/finalization.
 
 See [`docs/AGENT_CONTINUITY.md`](docs/AGENT_CONTINUITY.md).
 
@@ -239,7 +260,7 @@ The application runtime SQLite database and Agent Continuity SQLite database are
 
 ## Non-commercial exploration
 
-KomaMori is designed for personal experimentation and small-group internal use. It is not intended to operate a public catalog of third-party copyrighted manga. Public demos should use original, public-domain, or otherwise authorized content.
+KomaMori is designed primarily for personal experimentation. The default self-host configuration is localhost-only and has no built-in multi-user authentication. It is not intended to operate a public catalog of third-party copyrighted manga. Public demos should use original, public-domain, or otherwise authorized content.
 
 ## Documentation
 

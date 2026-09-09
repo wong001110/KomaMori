@@ -39,6 +39,12 @@ export const api = {
     const form = new FormData(); files.forEach((file) => form.append("files", file));
     return request<{ chapter_id: number; pages_imported: number }>(`/api/chapters/${chapterId}/import`, { method: "POST", body: form });
   },
+  replacePage: async (pageId: number, file: File) => {
+    const form = new FormData(); form.append("file", file);
+    return request<Page>(`/api/pages/${pageId}/asset`, { method: "PUT", body: form });
+  },
+  deletePage: (pageId: number) => request<void>(`/api/pages/${pageId}`, { method: "DELETE" }),
+  reorderPages: (chapterId: number, pageIds: number[]) => request<Page[]>(`/api/chapters/${chapterId}/pages/order`, { method: "PUT", ...json(pageIds) }),
   analyzeChapter: (chapterId: number, replace = false) => request<{ chapter_id: number; pages_analyzed: number; pages_skipped: number; regions_created: number }>(`/api/chapters/${chapterId}/analyze?replace=${replace}`, { method: "POST" }),
   cleanChapter: (chapterId: number) => request<{ chapter_id: number; pages_cleaned: number; pages_skipped: number }>(`/api/chapters/${chapterId}/clean`, { method: "POST" }),
   createRegion: (pageId: number, geometry: number[][], readingOrder: number, regionType: RegionType = "unknown") => request<RegionView>(`/api/pages/${pageId}/regions`, { method: "POST", ...json({ region_type: regionType, geometry, source_text: "", reading_order: readingOrder }) }),

@@ -15,9 +15,10 @@ Main application concerns:
 ## 2. Self-host topology
 
 ```text
-Browser
+Browser on host
   │
   ▼
+127.0.0.1:8787
 Nginx container
   ├── React/Vite static build
   └── /api/* proxy
@@ -39,7 +40,7 @@ Nginx container
        └── OpenAI-compatible LLM provider
 ```
 
-Docker Compose exposes the web app on port `8787`; `./data` and `./assets` are bind-mounted. Native development uses Vite on `5173` with `/api` proxied to FastAPI on `8000`.
+Docker Compose binds the web app to host loopback on `127.0.0.1:8787` by default; `./data` and `./assets` are bind-mounted. KomaMori has no built-in multi-user authentication, so wider network exposure is an explicit operator concern rather than a default topology. Native development uses Vite on `5173` with `/api` proxied to FastAPI on `8000`.
 
 ## 3. Implemented technology choices
 
@@ -52,16 +53,16 @@ Docker Compose exposes the web app on port `8787`; `./data` and `./assets` are b
 | Database | SQLite |
 | Schema lifecycle | versioned in-app migration ledger |
 | Binary assets | local filesystem |
-| Archive import | ZIP/CBZ parsing |
-| Image inspection | Pillow |
+| Archive import | bounded ZIP/CBZ parsing |
+| Image inspection | Pillow with pixel bounds |
 | Detection baseline | OpenCV heuristic |
 | OCR baseline | Tesseract Japanese |
 | Optional OCR | MangaOCR |
 | Cleanup | persisted masks + OpenCV Telea inpainting |
 | Translation | OpenAI-compatible provider abstraction |
-| QA | deterministic application checks |
-| Browser verification | Playwright |
-| Deployment | Docker Compose + Nginx |
+| QA | deterministic application checks + publication readiness gate |
+| Browser verification | Playwright positive + negative release workflows |
+| Deployment | Docker Compose + Nginx, localhost-only default bind |
 
 PostgreSQL, object storage, neural inpainting, background queues and distributed workflow infrastructure are not current dependencies.
 
@@ -73,7 +74,7 @@ A translated bitmap is never the source of truth.
 Series
 └── Chapter
     └── Page
-        ├── originalAsset       immutable
+        ├── originalAsset       immutable file version
         ├── cleanAsset?         derived
         └── TextRegion[]
             ├── type
@@ -91,6 +92,8 @@ Series
                 ├── qualityMetadata
                 └── layout
 ```
+
+Original asset **files** are immutable once written. Page recovery does not edit an original file in place: replacement writes a new unique original asset path, atomically moves durable page state to that path, invalidates obsolete page-bound regions/localizations/masks/clean state, then removes old files after commit.
 
 `TextRegion` is deliberately broader than `Bubble`. Supported types include:
 
@@ -123,38 +126,54 @@ known safe type?
 └─ no  → preserve, do not destructively process
 ```
 
-`unknown` and `sfx` are excluded from automatic cleanup and localization. They also do not inflate locale-completion denominators.
+`unknown` and `sfx` are excluded from automatic cleanup and localization. They do not inflate the translation denominator. However, `unknown` means source review is unresolved and therefore blocks locale `Ready`; explicitly classified `sfx` does not.
 
 This is intentionally fail-safe: uncertainty costs manual review rather than artwork destruction.
 
-## 6. Original, mask and clean assets
-
-Original pages are immutable.
+## 6. Original, mask and clean asset lifecycle
 
 For each cleanable region:
 
 ```text
 original page + region geometry
           ↓
-     text mask asset
+unique text-mask asset
           ↓
  masks for current page
           ↓
- OpenCV inpaint clean page
+unique OpenCV inpaint clean asset
 ```
 
-Masks live under derived storage and are inspectable through the API. Clean pages consume those persisted masks rather than ephemeral in-memory masks.
+Masks live under derived storage and are inspectable through the API. Clean pages consume persisted masks rather than ephemeral in-memory masks.
 
 Derived-state invalidation rules are explicit:
 
-- geometry/type change → delete stale region mask + page clean asset;
-- new cleanable region → invalidate page clean asset;
-- cleanable region deletion → remove mask + invalidate clean page;
+- geometry/type change → clear region mask reference + page clean reference; remove old files after DB commit;
+- new cleanable region → invalidate page clean reference; remove old clean after commit;
+- cleanable region deletion → delete region/DB state, then remove obsolete mask/clean files;
 - geometry change → recompute per-locale layout;
-- source OCR text change → demote localizations to `needs-review`;
-- approved translation text change → demote to `needs-review`; explicit re-approval refreshes approved reuse memory.
+- source OCR text change → demote localizations to `needs-review` and invalidate affected reuse memory;
+- approved translation text change → demote to `needs-review`; explicit re-approval may refresh reuse memory;
+- terminology-policy change → conservatively demote series/locale localizations and clear affected approved reuse memory;
+- page replacement → write new original, invalidate old page-bound structured/derived state, commit, then remove obsolete files;
+- page deletion → delete DB state and normalize remaining indexes before post-commit file cleanup;
+- page reorder → preserve page identities/content while safely normalizing `page_index` values.
 
-## 7. Region correction workbench
+### Cross-store commit rule
+
+SQLite and the filesystem cannot share one native transaction. KomaMori therefore uses this failure preference:
+
+```text
+prepare/write new unique assets
+        ↓
+commit durable DB references/state
+        ↓
+best-effort remove obsolete old assets
+```
+
+A failed new writer removes its partial new file. A DB commit failure removes newly prepared files and leaves previously referenced files intact. A crash during post-commit cleanup can leave an **orphan file**, which is safer and recoverable compared with a DB row pointing at an asset deleted before commit. Orphan audit/GC is explicitly deferred.
+
+## 7. Region correction and page recovery
 
 The web workbench is the correction layer for heuristic detection. It supports:
 
@@ -166,6 +185,12 @@ The web workbench is the correction layer for heuristic detection. It supports:
 - resize;
 - OCR/source editing;
 - translation editing and approval.
+
+The Library additionally supports imported page recovery:
+
+- replace one page with a new original;
+- delete one page;
+- move/reorder pages with exact page-set validation and collision-safe index normalization.
 
 Reader mode does not render `unknown` or `sfx` overlays, while Workbench keeps them visible for correction.
 
@@ -190,9 +215,9 @@ ApprovedTranslation
 └── provenance
 ```
 
-A locked term matches either its canonical source or configured aliases. The exact variant found in the source is passed to the translation provider with the canonical target, and deterministic QA enforces the target for canonical/alias matches alike.
+A locked term matches either its canonical source or configured aliases. The exact variant found in source text is passed to the translation provider with the canonical target, and deterministic QA enforces the target for canonical/alias matches alike.
 
-Approved translations are exact source-text reuse, scoped to series + locale.
+Approved translations are exact source-text reuse, scoped to series + locale. `approved` is a human workflow state; **reusable** is stricter. Reuse memory is populated only for a translatable region with nonempty source and no blocking deterministic QA error. Unknown/SFX or blocking-QA-invalid approvals therefore cannot pollute approved-memory reuse.
 
 ## 9. Translation execution
 
@@ -208,48 +233,77 @@ locked canonical/alias terms present in source
 
 Before provider invocation, KomaMori checks exact approved-translation memory. Dynamic scene interpretation is not stored as a dedicated emotion/character-voice subsystem.
 
-## 10. OCR confidence and QA
+## 10. OCR confidence and deterministic QA
 
-Tesseract keeps its existing OCR text output and separately reads word-level confidence data. Valid word confidences are normalized to `0..1` and averaged for the region. If no usable confidence exists, the provider returns `None` rather than inventing certainty.
+Tesseract keeps OCR text output and separately reads word-level confidence data. Valid word confidences are normalized to `0..1` and averaged for the region. If no usable confidence exists, the provider returns `None` rather than inventing certainty.
 
 MangaOCR currently returns no confidence through the provider contract.
 
-Deterministic QA checks:
+Shared deterministic QA checks include:
 
 ```text
-missing translation?
-locked canonical/alias term violated?
-provider OCR confidence below threshold?
-layout poor-fit?
+translatable region missing source?     error
+missing translation?                    error
+locked canonical/alias term violated?   error
+provider OCR confidence below threshold? warning
+layout poor-fit?                         warning
 ```
 
 Tesseract confidence is an engine signal, not a calibrated probability of correctness.
 
-## 11. Layout and locale readiness
+## 11. Publication-aware locale readiness
 
 Layout is locale-specific. Current auto-fit is heuristic: bounding box, CJK/whitespace-aware wrapping and font-size search produce `fit` / `poor-fit` plus a rough recommended maximum length.
 
-Locale readiness is derived rather than manually asserted:
+Locale readiness is derived rather than manually asserted. Translation denominator contains explicit translatable region types; unresolved `unknown` regions are tracked separately as a source-review blocker.
 
 ```text
-not all translated       → in-progress
-all translated           → review
-all translated+approved  → ready
+any unresolved unknown
+or incomplete translation
+        → in-progress
+
+all translated + source classified
+but not all approved
+or blocking deterministic QA error exists
+        → review
+
+all translatable regions translated
++ all have nonempty approved text
++ zero unresolved unknown
++ zero blocking deterministic QA error
+        → ready
 ```
 
-Reader surfaces this state so a partial localization is not silently presented as finished.
+Warnings such as low OCR confidence or poor fit remain visible to QA but do not by themselves block `Ready` unless promoted to an error policy later. Reader surfaces readiness so partial or blocked localization is not silently presented as finished.
 
 ## 12. Runtime database lifecycle
 
 Application startup runs a versioned migration runner. A `schema_migrations` ledger records applied versions. The current baseline migration can adopt an existing MVP database by creating only missing schema objects; existing rows are preserved.
 
-SQLite connections explicitly enable foreign-key enforcement so database cascades match the ORM model.
+File-backed SQLite connections explicitly enable:
 
-The migration runner is intentionally lightweight. If future schema evolution requires complex ALTER/data transforms, adopting Alembic should be reevaluated rather than building an increasingly complex custom migration framework.
+```text
+PRAGMA foreign_keys=ON
+PRAGMA journal_mode=WAL
+PRAGMA busy_timeout=5000
+```
 
-Series/Chapter deletion also cleans corresponding original/clean/mask filesystem trees so database lifecycle and asset lifecycle stay aligned.
+SQLAlchemy also uses a bounded SQLite connection timeout. The migration runner remains intentionally lightweight; if future schema evolution requires complex ALTER/data transforms, adopting Alembic should be reevaluated rather than growing an ad-hoc migration framework indefinitely.
 
-## 13. Execution and verification model
+## 13. Untrusted import boundary
+
+Direct images and CBZ/ZIP uploads are bounded before expensive allocation where possible:
+
+- page-count limit;
+- per-page byte limit;
+- aggregate direct/uncompressed byte limit;
+- archive compressed byte limit;
+- ZipInfo uncompressed-size preflight before reading an entry;
+- image pixel-count limit before decode-heavy processing.
+
+These are self-host safety bounds rather than a claim that KomaMori is a hardened hostile multi-tenant upload service.
+
+## 14. Execution and verification model
 
 Processing endpoints are currently synchronous:
 
@@ -269,12 +323,12 @@ Pull requests verify four independent layers:
 backend pytest
 frontend TypeScript + Vite build
 Docker Compose/container build
-Playwright full-stack browser workflow
+Playwright full-stack browser workflows
 ```
 
-The browser test starts real FastAPI + Vite processes and exercises the public UI/API path rather than mocking the application boundary.
+Browser tests start real FastAPI + Vite processes and exercise public UI/API paths. They include both the positive manual-localization path and negative publication invariants such as unresolved unknown and locked-term QA blockers.
 
-## 14. Agent Continuity is separate from runtime state
+## 15. Agent Continuity is separate from runtime state
 
 KomaMori runtime SQLite and Agent Continuity SQLite are separate databases.
 
@@ -283,14 +337,14 @@ KomaMori runtime DB
 → manga/localization application data
 
 .agent-continuity/state.db
-→ development phase/task/scope/check/evidence/gate state
+→ development source/finding/phase/task/requirement/check/invariant/evidence/gate state
 ```
 
-Git-tracked `.agent-continuity/plans/*.toml` manifests define approved development scope. Agent Continuity v0.2 stores check-level evidence and refuses phase completion without a passing gate for the current manifest revision.
+Git-tracked `.agent-continuity/plans/*.toml` manifests define captured development scope. Agent Continuity v0.3 adds durable source/finding capture, Scope Capture Gate, cross-cutting invariants, impact-driven stale evidence, Completion Gate and mandatory Fresh Reviewer Gate. A fresh reviewer finding invalidates prior capture/completion authority until the finding is mapped/disposed, scope is recaptured and current evidence is reverified.
 
 See [`AGENT_CONTINUITY.md`](AGENT_CONTINUITY.md).
 
-## 15. Architecture guardrails
+## 16. Architecture guardrails
 
 Before adding a subsystem, ask:
 
