@@ -1,141 +1,223 @@
 # Agent Continuity experiment
 
-KomaMori is the first live test bed for the Agent Continuity method.
+KomaMori is the live test bed for **Agent Continuity v0.3**.
 
 ## Goal
 
-A fresh cloud development session should be able to continue work without depending on previous chat context or an earlier sandbox, **and must not silently lose any approved requirement while doing so**.
+A fresh development session must recover not only where execution stopped, but also:
+
+1. what the original source/request/reviewer findings were;
+2. whether every material source item was captured into current scope;
+3. which cross-cutting invariants may be affected by changes;
+4. which acceptance checks still lack current evidence;
+5. whether a fresh reviewer found any material defect outside the checklist.
 
 ```text
 ephemeral agent/session
        ↓
-GitHub ─────────────── implementation + approved scope manifests
+ScopeSource / ReviewFinding registry
        ↓
-SQLite state snapshot ─ execution state + check-level evidence + gate history
+Scope Capture Gate
        ↓
-bootstrap / reconciliation
+Git-tracked Requirements / Acceptance Checks / Invariants
        ↓
-resume first unfinished promised check
+implementation + evidence + impact staleness
+       ↓
+Completion Gate       -> scope-complete
+       ↓
+Fresh Reviewer Gate   -> review-clear
+       ↓
+merge/checkpoint      -> finalized
 ```
+
+`scope-complete` does **not** mean defect-free. It means the currently captured/approved scope has passed its gate.
 
 ## Source-of-truth boundaries
 
-- **Git-tracked scope manifest**: what the phase/task promises, with stable Requirement and Acceptance Check IDs.
-- **GitHub**: code, docs, commits, branches, PRs, CI and reviewable artifacts.
-- **Agent Continuity SQLite**: current phase/task, manifest revision, requirement/check state, event ledger, checkpoints, evidence mappings and gate runs.
+- **ScopeSource / ReviewFinding registry**: durable original intent, reviewer findings, discovered defects and explicit dispositions.
+- **Git-tracked scope manifest**: how current source items map to Requirement / Acceptance Check IDs and invariants.
+- **GitHub**: implementation, docs, commits, PRs, CI and reviewable artifacts.
+- **Agent Continuity SQLite**: current execution state, source mappings, requirements/checks, invariants, stale evidence, gate history, checkpoints and events.
 - **ChatGPT Library during this experiment**: durable backing copy of the SQLite state file between ephemeral sessions.
-- **Chat history**: optional context only; never required to resume or decide completion.
+- **Chat history**: optional context only; never canonical continuation state.
 
-The SQLite database is intentionally excluded from Git. Approved scope is intentionally **not** excluded from Git: multi-part phases use `.agent-continuity/plans/<phase>.toml` so the promised work can be reviewed in the same PR history as the implementation.
+## v0.3 source capture
 
-## v0.2 completion model
+Material inputs become stable IDs before broad implementation:
 
 ```text
-Phase
-└── Requirement P5-R01
-    ├── Acceptance Check P5-R01-C01
-    │   └── Evidence bound to commit/workspace
-    └── Acceptance Check P5-R01-C02
-        └── Evidence bound to commit/workspace
+SRC-*  user/spec/policy/scope-change item
+FND-*  reviewer/discovered defect or risk
 ```
 
-A broad task title such as `CRUD`, `editor`, or `QA` is not completion evidence. If create/read/update/delete can fail independently, they need independently traceable checks when all four are required.
+Every source/finding must be one of:
 
-States such as `pending`, `blocked`, `failed`, `deferred`, `waived`, and `passed` are intentionally distinct. Omission is never treated as implicit deferral.
+```text
+mapped
+explicitly deferred
+waived
+superseded
+rejected
+```
 
-## Bootstrap protocol
+`unmapped` blocks the Scope Capture Gate. Silence is never an implicit defer.
 
-1. Obtain repository identity and current Git state.
-2. Restore `.agent-continuity/state.db` from the durable backing store.
-3. Run `python scripts/continuity.py bootstrap`.
-4. Validate SQLite integrity/schema.
-5. Compare Git/workspace state with the recorded checkpoint.
-6. Compare the synced manifest hash with the current Git-tracked scope manifest.
-7. Stop and reconcile on material drift.
-8. Read the active phase/task plus the manifest requirements/checks and latest gate.
-9. Resume from `first_unfinished_check`, not merely from a narrative `next action`.
-10. After meaningful work, record check-level evidence and publish the refreshed SQLite snapshot.
+Captured source items and invariants are durable history. A later manifest may not make one disappear by omission: a mapped source must continue to map to an **active current Requirement**, and an invariant remains active until it is explicitly deferred or retired.
 
-## Commands
+## Scope Capture Gate
+
+Before broad implementation:
+
+- every material source/finding has explicit durable disposition;
+- every mapped source points to one or more active Requirement IDs;
+- every required Requirement has required observable Acceptance Checks;
+- every active invariant introduced by the phase is mapped to at least one required current check;
+- no required item exists only in chat/reviewer prose.
+
+Example:
 
 ```bash
-python scripts/continuity.py init
-python scripts/continuity.py bootstrap
-
-# Sync approved scope into durable state.
-python scripts/continuity.py manifest-sync \
-  .agent-continuity/plans/phase-5.toml \
-  --commit <scope-commit>
-
-python scripts/continuity.py phase phase-5 \
-  "Agent Continuity v0.2 completion traceability" \
-  in_progress
-
-python scripts/continuity.py task p5-continuity phase-5 \
-  "Upgrade Agent Continuity runtime" \
-  in_progress \
-  --branch phase-5-completeness-integrity
-
-# Link the implementation PR.
-python scripts/continuity.py pr p5-continuity 6
-
-# One evidence record may satisfy several checks, but it must name them explicitly.
-python scripts/continuity.py evidence test "pytest + CI passed" \
-  --task p5-continuity \
-  --status passed \
-  --commit <verified-commit> \
-  --check P5-R01-C01 \
-  --check P5-R01-C02
-
-# Fail closed when required checks/evidence/PR linkage are missing.
-python scripts/continuity.py gate phase-5 --commit <verified-commit>
-
-# Completion is rejected unless a passing gate exists for the current manifest hash.
-python scripts/continuity.py task p5-continuity phase-5 \
-  "Upgrade Agent Continuity runtime" completed \
-  --commit <verified-commit>
-python scripts/continuity.py phase phase-5 \
-  "Agent Continuity v0.2 completion traceability" completed \
-  --commit <verified-commit>
-
-python scripts/continuity.py checkpoint phase-5 \
-  "Phase 5 merged" --commit <merge-sha>
+python scripts/continuity_v03.py manifest-sync \
+  .agent-continuity/plans/phase-10.toml --commit <scope-commit>
+python scripts/continuity_v03.py capture-gate phase-10
 ```
 
-## Completion gate
+## ReviewFinding lifecycle
 
-A phase using a scope manifest may become completed only when the latest gate for the **current manifest hash** passes. The gate checks at least:
+`ReviewFinding.status` is operational execution state, separate from the manifest's initial mapping declaration. An ordinary scope resync must not regress a finding from `verified` back to `mapped`.
 
-- every active required Requirement has required Acceptance Checks;
-- every required Acceptance Check is `passed`;
-- every required check has passed evidence bound to the commit being gated;
-- the phase has explicit PR linkage unless the caller intentionally opts out;
-- there is no required blocked/failed/pending check.
+Typical lifecycle:
 
-The gate records all missing IDs. A generic `failed` result is not sufficient because the next agent needs to know exactly what remains.
+```text
+open -> mapped -> fixed -> verified
+                    └-> deferred / waived / rejected / superseded
+```
 
-If the manifest changes, the hash changes and earlier gate success no longer authorizes completion. The new scope must be synced, satisfied, and gated again.
+Terminal scope decisions require explicit reason where applicable. Reopening a verified finding is an intentional state transition, not a side effect of loading the same manifest again.
+
+## Invariants and change impact
+
+Features are not the only things that matter. v0.3 tracks cross-cutting properties such as:
+
+```text
+INV-DATA-001   durable DB state must not reference missing required assets
+INV-READY-001  Ready cannot coexist with unresolved source review
+INV-CONT-001   material source items cannot silently disappear from scope
+```
+
+Requirements/checks may declare impacted modules/domains/invariants. When a later commit changes an impacted module, the mapped check becomes stale until reverified.
+
+```bash
+python scripts/continuity_v03.py impact phase-10 \
+  --module scripts/continuity_v03.py \
+  --changed-ref <commit>
+```
+
+## Completion Gate
+
+Completion requires every required acceptance check and declared evidence kind to be current for the accepted commit/workspace. It additionally requires the **latest** Scope Capture Gate for the current manifest hash to be passing and no stale impacted checks.
+
+```bash
+python scripts/continuity_v03.py gate phase-10 --commit <verified-commit>
+```
+
+A passing completion gate means **scope-complete**.
+
+Completion authority belongs to one capture generation. If later review introduces a new material source/finding or changes its scope disposition, v0.3 records a capture invalidation. Old Completion Gate success can no longer authorize finalization. The phase must run:
+
+```text
+new/changed finding
+→ Capture invalidated
+→ explicit disposition/mapping
+→ Scope Capture Gate again
+→ Completion Gate again
+→ Fresh Reviewer Gate again
+```
+
+Completion/review gates accepted for finalization must be newer than the latest successful recapture.
+
+## Fresh Reviewer Gate
+
+Execute mode performs a fresh review deliberately outside the checklist **after Completion Gate**. It searches for:
+
+- failure / rollback / recovery paths;
+- cross-store and data invariants;
+- state-machine / publication semantics;
+- security / exposure / permission boundaries;
+- resource limits;
+- migration/upgrade compatibility;
+- regression/change-impact surfaces;
+- documentation/claim drift.
+
+New material findings must be registered immediately:
+
+```bash
+python scripts/continuity_v03.py finding \
+  FND-10-006 phase-10 P0 \
+  "New review finding" \
+  "Description" --commit <reviewed-commit>
+```
+
+Registering a fresh finding invalidates the current capture generation. A passing Fresh Reviewer Gate cannot be recorded before a passing Completion Gate exists for the current manifest, same commit, and latest capture generation.
+
+```bash
+python scripts/continuity_v03.py review-gate phase-10 --commit <reviewed-commit>
+```
+
+If review creates required work, update scope, recapture, implement/reverify, rerun Completion Gate, then review again.
+
+### Durable-store finalization guard
+
+The repository keeps the older `scripts/continuity.py` for backward compatibility with historical v0.1/v0.2 state. v0.3 therefore does not rely only on callers choosing the new CLI. SQLite triggers activate for phases that contain v0.3 scope sources and reject `Phase` or `Task` transition to `completed` unless the current capture generation has:
+
+- latest Scope Capture Gate = passing;
+- a later passing Completion Gate; and
+- a still-later passing Fresh Reviewer Gate bound to the same accepted commit.
+
+This makes the durable store the fail-closed boundary: invoking the legacy CLI directly cannot bypass v0.3 finalization policy.
+
+## Execute mode
+
+For multi-part project work:
+
+```text
+Inspect reality
+→ capture sources/findings
+→ Scope Capture Gate
+→ implement
+→ verify + impact/stale reconciliation
+→ Completion Gate
+→ Fresh Reviewer Gate
+→ register new findings immediately
+→ loop Capture -> Completion -> Review until clear
+→ merge/checkpoint
+→ final reconcile/publish durable state
+```
+
+Execute mode reduces narration, not validation depth.
 
 ## Persistent Library mode
 
 ```text
 fetch Library object version N
-  → materialize state.db
-  → schema/integrity check
-  → reconcile Git + manifest
-  → execute/checkpoint
-  → close SQLite
-  → upload only against observed Library version N
-  → Library version N+1
+→ materialize state.db
+→ integrity/schema check
+→ reconcile Git + source registry + manifest
+→ execute/checkpoint locally
+→ close SQLite
+→ upload only against observed Library version N
+→ Library version N+1
 ```
 
-A version mismatch is a conflict signal. Do not force overwrite a newer state snapshot.
+A version mismatch is a conflict signal. Do not overwrite a newer state snapshot blindly.
 
 ## Acceptance property
 
-Agent Continuity is not proven because the database can be written. A real test must demonstrate that a fresh session can recover both:
+Agent Continuity v0.3 is successful only when a new session can recover:
 
-1. **where execution stopped**, and
-2. **which approved checks are still unfinished**.
-
-KomaMori already validated destructive restore of its v0.1 phase/checkpoint history. Phase 5 extends that experiment to scope completeness and fail-closed completion gates.
+- where execution stopped;
+- which original sources/findings remain unresolved;
+- which mapped checks are incomplete or stale;
+- which invariants need re-verification;
+- which capture generation is authoritative;
+- whether completion and fresh-review gates are valid for the current commit.
