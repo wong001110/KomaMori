@@ -1,0 +1,79 @@
+manifest_version = 1
+id = "phase-5"
+project = "komamori"
+title = "Agent Continuity v0.2 completion traceability"
+
+[[requirements]]
+id = "P5-R01"
+title = "Durable approved scope"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P5-R01-C01"
+description = "Phase scope is stored in a Git-tracked manifest with stable requirement and acceptance-check IDs"
+evidence = ["test", "review"]
+
+[[requirements.checks]]
+id = "P5-R01-C02"
+description = "Manifest sync persists manifest path/hash plus every requirement and acceptance check into durable state"
+evidence = ["test"]
+
+[[requirements]]
+id = "P5-R02"
+title = "Check-level evidence traceability"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P5-R02-C01"
+description = "Verification evidence can be bound to one or more acceptance-check IDs and an exact commit/workspace identity"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P5-R02-C02"
+description = "A required check without passed evidence remains incomplete even when the parent task was previously marked completed"
+evidence = ["test"]
+
+[[requirements]]
+id = "P5-R03"
+title = "Fail-closed completion gate"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P5-R03-C01"
+description = "The phase gate enumerates incomplete/failed/blocked acceptance-check IDs and records a failed gate run"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P5-R03-C02"
+description = "Changing the approved manifest hash invalidates earlier gate success until the new scope is satisfied"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P5-R03-C03"
+description = "Task or phase completion is rejected when the current manifest has no passing completion gate"
+evidence = ["test"]
+
+[[requirements]]
+id = "P5-R04"
+title = "Completeness-aware resume"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P5-R04-C01"
+description = "Bootstrap reports the current manifest revision, requirements, acceptance checks, and last gate result so a fresh agent can resume from the first unfinished promised item"
+evidence = ["test"]
+
+[[requirements]]
+id = "P5-R05"
+title = "Backward-compatible state upgrade"
+disposition = "required"
+
+[[requirements.checks]]
+id = "P5-R05-C01"
+description = "An existing v0.1 SQLite state database upgrades in place without losing project, phase, task, checkpoint, evidence, or event history"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P5-R05-C02"
+description = "New task records can persist PR linkage and gate state without rewriting historical evidence"
+evidence = ["test"]
