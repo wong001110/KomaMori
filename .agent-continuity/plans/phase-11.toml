@@ -137,7 +137,7 @@ finding_status = "mapped"
 [[sources]]
 id = "FND-11-016"
 kind = "reviewer"
-summary = "Project roadmap drifted behind merged Phase 10 and active Phase 11 state"
+summary = "Project-owned ROADMAP, README and ARCHITECTURE drift behind Phase 10/11 and current safety semantics"
 severity = "P2"
 disposition = "mapped"
 finding_status = "mapped"
@@ -341,14 +341,18 @@ evidence = ["test", "review"]
 
 [[requirements]]
 id = "P11-R07"
-title = "Project-state documentation reconciliation"
+title = "Project-owned documentation reconciliation"
 disposition = "required"
 source_refs = ["FND-11-016"]
 [requirements.impacts]
 domains = ["project-state", "documentation"]
-modules = ["docs/ROADMAP.md"]
+modules = ["README.md", "docs/ROADMAP.md", "docs/ARCHITECTURE.md"]
 invariants = []
 [[requirements.checks]]
 id = "P11-R07-C01"
-description = "ROADMAP records Phase 9 and 10 as completed, Phase 11 as active, and explicitly lists deferred integrity follow-ups"
+description = "ROADMAP records Phase 9/10 completion, Phase 11 active scope, and explicit deferred follow-ups"
+evidence = ["review"]
+[[requirements.checks]]
+id = "P11-R07-C02"
+description = "README and ARCHITECTURE match current page-recovery, commit-safe asset, Ready/reuse, localhost exposure, SQLite and Agent Continuity v0.3 semantics"
 evidence = ["review"]
