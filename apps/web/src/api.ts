@@ -13,6 +13,8 @@ export type Page = {
 export type SeriesDetail = Series & { chapters: Chapter[] };
 export type ChapterDetail = Chapter & { pages: Page[] };
 
+export type RegionType = "unknown" | "dialogue" | "thought" | "narration" | "caption" | "sign" | "ui" | "sfx";
+
 export type Localization = {
   id: number;
   text_region_id: number;
@@ -27,7 +29,7 @@ export type Localization = {
 export type RegionView = {
   id: number;
   page_id: number;
-  region_type: string;
+  region_type: RegionType | string;
   geometry: number[][];
   source_text: string;
   ocr_confidence: number | null;
@@ -88,6 +90,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     const body = await response.json().catch(() => ({ detail: response.statusText }));
     throw new Error(body.detail ?? `Request failed: ${response.status}`);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -123,8 +126,14 @@ export const api = {
       `/api/chapters/${chapterId}/clean`,
       { method: "POST" }
     ),
+  createRegion: (pageId: number, geometry: number[][], readingOrder: number, regionType: RegionType = "unknown") =>
+    request<RegionView>(`/api/pages/${pageId}/regions`, {
+      method: "POST",
+      ...json({ region_type: regionType, geometry, source_text: "", reading_order: readingOrder })
+    }),
   updateRegion: (regionId: number, patch: Partial<Pick<RegionView, "source_text" | "geometry" | "reading_order" | "region_type">>) =>
     request<RegionView>(`/api/regions/${regionId}`, { method: "PATCH", ...json(patch) }),
+  deleteRegion: (regionId: number) => request<void>(`/api/regions/${regionId}`, { method: "DELETE" }),
 
   getChapterView: (chapterId: number, locale: string) =>
     request<ChapterView>(`/api/chapters/${chapterId}/view/${encodeURIComponent(locale)}`),
