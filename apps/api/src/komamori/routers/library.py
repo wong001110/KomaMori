@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -164,3 +164,21 @@ def update_region(
     session.commit()
     session.refresh(region)
     return region
+
+
+@router.delete("/regions/{region_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_region(
+    region_id: int,
+    session: Session = Depends(get_session),
+    assets: AssetStore = Depends(get_asset_store),
+) -> Response:
+    region = _get_or_404(session, TextRegion, region_id)
+    page = _get_or_404(session, Page, region.page_id)
+    assets.delete(region.mask_asset)
+    if region.region_type in CLEANABLE_REGION_TYPES and page.clean_asset:
+        assets.delete(page.clean_asset)
+        page.clean_asset = None
+        page.processing_status = "analyzed"
+    session.delete(region)
+    session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
