@@ -1,0 +1,172 @@
+manifest_version = 2
+id = "phase-10"
+project = "komamori"
+title = "Agent Continuity v0.3 scope capture and reviewer gates"
+
+[[sources]]
+id = "SRC-10-001"
+kind = "user"
+summary = "Upgrade Agent Continuity and Execute mode so multi-item work is not silently dropped"
+disposition = "mapped"
+origin_ref = "current conversation"
+
+[[sources]]
+id = "FND-10-001"
+kind = "reviewer"
+summary = "v0.2 cannot prove that original intent was fully captured into the manifest"
+description = "A source item omitted before manifest creation is invisible to the v0.2 completion gate."
+severity = "P0"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
+id = "FND-10-002"
+kind = "reviewer"
+summary = "Reviewer findings are not first-class durable state"
+description = "Findings can remain only in chat/review prose and be lost during later phase planning."
+severity = "P0"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
+id = "FND-10-003"
+kind = "reviewer"
+summary = "Cross-cutting invariants are not tracked independently of feature requirements"
+description = "Data and publication safety properties can be missed even when feature checks pass."
+severity = "P0"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
+id = "FND-10-004"
+kind = "reviewer"
+summary = "v0.2 has stale-evidence semantics but no runtime change-impact mapping"
+description = "Later changes can affect a verified behavior without automatically making its evidence stale."
+severity = "P1"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
+id = "FND-10-005"
+kind = "reviewer"
+summary = "Execute mode lacks a mandatory fresh reviewer gate after checklist completion"
+description = "A completion gate can pass while a new failure-path or invariant defect remains outside the manifest."
+severity = "P0"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
+id = "SRC-10-002"
+kind = "user"
+summary = "Execute the KomaMori reliability fixes found by the latest reviewer pass"
+disposition = "deferred"
+reason = "First upgrade the continuity runtime so the reliability phase itself is captured and reviewer-gated with v0.3."
+destination = "phase-11"
+origin_ref = "current conversation"
+
+[[invariants]]
+id = "INV-CONT-001"
+description = "Every material source or reviewer finding must have an explicit durable disposition before broad implementation."
+severity = "P0"
+status = "active"
+
+[[invariants]]
+id = "INV-CONT-002"
+description = "A v0.3 phase cannot finalize without capture gate, completion gate, and fresh reviewer gate for the accepted state."
+severity = "P0"
+status = "active"
+
+[[invariants]]
+id = "INV-CONT-003"
+description = "Changes to impacted modules must make affected prior verification stale until reverified."
+severity = "P1"
+status = "active"
+
+[[requirements]]
+id = "P10-R01"
+title = "Durable source and reviewer-finding capture"
+disposition = "required"
+source_refs = ["SRC-10-001", "FND-10-001", "FND-10-002"]
+
+[requirements.impacts]
+domains = ["scope-capture", "review-findings"]
+modules = [".agent-continuity/schema.sql", "scripts/continuity_v03.py"]
+invariants = ["INV-CONT-001"]
+
+[[requirements.checks]]
+id = "P10-R01-C01"
+description = "Manifest source items are persisted with explicit dispositions and mapped source items point to requirements"
+evidence = ["test", "review"]
+
+[[requirements.checks]]
+id = "P10-R01-C02"
+description = "Scope Capture Gate fails on an unmapped material source"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P10-R01-C03"
+description = "Reviewer findings can be registered immediately and remain unresolved until an explicit terminal disposition"
+evidence = ["test", "review"]
+
+[[requirements]]
+id = "P10-R02"
+title = "Invariant registry and impact-driven stale evidence"
+disposition = "required"
+source_refs = ["FND-10-003", "FND-10-004"]
+
+[requirements.impacts]
+domains = ["invariants", "change-impact"]
+modules = [".agent-continuity/schema.sql", "scripts/continuity_v03.py"]
+invariants = ["INV-CONT-003"]
+
+[[requirements.checks]]
+id = "P10-R02-C01"
+description = "Active invariants must be mapped to at least one required acceptance check before capture gate passes"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P10-R02-C02"
+description = "A changed impacted module marks its mapped check stale and blocks completion until new evidence is recorded"
+evidence = ["test", "review"]
+
+[[requirements]]
+id = "P10-R03"
+title = "Mandatory fresh reviewer gate for Execute mode"
+disposition = "required"
+source_refs = ["FND-10-005", "SRC-10-001"]
+
+[requirements.impacts]
+domains = ["execute-mode", "review-gate"]
+modules = ["scripts/continuity_v03.py", "docs/AGENT_CONTINUITY.md"]
+invariants = ["INV-CONT-002"]
+
+[[requirements.checks]]
+id = "P10-R03-C01"
+description = "Fresh reviewer gate fails while a material reviewer finding remains non-terminal"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P10-R03-C02"
+description = "Phase/task completion through the v0.3 runtime requires both completion and fresh reviewer gates for the accepted commit"
+evidence = ["test", "review"]
+
+[[requirements]]
+id = "P10-R04"
+title = "Backward-compatible runtime upgrade and documentation"
+disposition = "required"
+source_refs = ["SRC-10-001"]
+
+[requirements.impacts]
+domains = ["continuity-upgrade"]
+modules = [".agent-continuity/schema.sql", "scripts/continuity_v03.py", "apps/api/tests/test_continuity_v03.py", "docs/AGENT_CONTINUITY.md"]
+invariants = ["INV-CONT-001", "INV-CONT-002", "INV-CONT-003"]
+
+[[requirements.checks]]
+id = "P10-R04-C01"
+description = "Existing v0.2 continuity state upgrades in place without losing earlier phase/task/check/evidence history"
+evidence = ["test"]
+
+[[requirements.checks]]
+id = "P10-R04-C02"
+description = "Repository documentation explains Scope Capture Gate, scope-complete semantics, impact staleness and Fresh Reviewer Gate"
+evidence = ["review"]
