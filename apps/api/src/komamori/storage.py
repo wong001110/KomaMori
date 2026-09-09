@@ -86,26 +86,38 @@ class AssetStore:
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
 
+    def _target(self, relative: str | Path) -> Path:
+        target = (self.root / relative).resolve()
+        if target != self.root and self.root not in target.parents:
+            raise ValueError("Asset path escaped root")
+        return target
+
     def write_original(self, series_id: int, chapter_id: int, page_index: int, page: ImportPage) -> str:
         relative = Path("original") / str(series_id) / str(chapter_id) / f"{page_index:04d}-{page.filename}"
-        target = (self.root / relative).resolve()
-        if self.root not in target.parents:
-            raise ValueError("Asset path escaped root")
+        target = self._target(relative)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(page.content)
         return relative.as_posix()
 
     def writable_path(self, relative: str) -> Path:
-        target = (self.root / relative).resolve()
-        if target != self.root and self.root not in target.parents:
-            raise ValueError("Asset path escaped root")
+        target = self._target(relative)
         target.parent.mkdir(parents=True, exist_ok=True)
         return target
 
+    def exists(self, relative: str | None) -> bool:
+        if not relative:
+            return False
+        return self._target(relative).is_file()
+
+    def delete(self, relative: str | None) -> None:
+        if not relative:
+            return
+        target = self._target(relative)
+        if target.is_file():
+            target.unlink()
+
     def resolve(self, relative: str) -> Path:
-        target = (self.root / relative).resolve()
-        if target != self.root and self.root not in target.parents:
-            raise HTTPException(status_code=404, detail="Asset not found")
+        target = self._target(relative)
         if not target.is_file():
             raise HTTPException(status_code=404, detail="Asset not found")
         return target
