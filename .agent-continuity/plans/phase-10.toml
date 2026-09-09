@@ -101,6 +101,15 @@ disposition = "mapped"
 finding_status = "mapped"
 
 [[sources]]
+id = "FND-10-011"
+kind = "reviewer"
+summary = "Region editor success feedback is cleared by its own server-state refresh"
+description = "save/approve reload the selected region and the synchronization effect clears the operation message, making the full-stack E2E deterministically fail and hiding user feedback."
+severity = "P1"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
 id = "SRC-10-002"
 kind = "user"
 summary = "Execute the KomaMori reliability fixes found by the latest reviewer pass"
@@ -240,3 +249,19 @@ evidence = ["test"]
 id = "P10-R04-C02"
 description = "Repository documentation explains Scope Capture Gate, scope-complete semantics, impact staleness and Fresh Reviewer Gate"
 evidence = ["review"]
+
+[[requirements]]
+id = "P10-R05"
+title = "Full-stack operation feedback remains observable after reload"
+disposition = "required"
+source_refs = ["FND-10-011"]
+
+[requirements.impacts]
+domains = ["e2e", "editor-feedback"]
+modules = ["apps/web/src/RegionEditor.tsx", "apps/web/e2e/workflow.spec.ts"]
+invariants = []
+
+[[requirements.checks]]
+id = "P10-R05-C01"
+description = "Saving a region through the real browser workflow keeps the Saved feedback visible after server-state reload and the workflow proceeds to approval"
+evidence = ["e2e", "review"]
