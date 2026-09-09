@@ -86,6 +86,16 @@ def test_region_edits_invalidate_clean_mask_and_recompute_layout(client: TestCli
     assert after_source["status"] == "needs-review"
 
 
+def test_adding_cleanable_region_invalidates_existing_clean_page(client: TestClient) -> None:
+    _, _, page_id = setup_page(client)
+    create_region(client, page_id, region_type="dialogue", source="first", order=1)
+    assert client.post(f"/api/pages/{page_id}/clean").status_code == 200
+    assert client.get(f"/api/pages/{page_id}/clean-asset").status_code == 200
+
+    create_region(client, page_id, region_type="dialogue", source="second", order=2)
+    assert client.get(f"/api/pages/{page_id}/clean-asset").status_code == 404
+
+
 def test_editing_approved_text_requires_reapproval_and_updates_reuse_memory(client: TestClient) -> None:
     _, chapter_id, page_id = setup_page(client)
     first = create_region(client, page_id, source="同じ原文", order=1)
