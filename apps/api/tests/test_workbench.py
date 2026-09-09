@@ -39,7 +39,7 @@ def setup_chapter(client: TestClient) -> tuple[int, int, int]:
 
 
 def test_batch_analyze_and_clean(client: TestClient) -> None:
-    _, chapter_id, _ = setup_chapter(client)
+    _, chapter_id, page_id = setup_chapter(client)
     app.dependency_overrides[get_ocr_provider] = lambda: FakeOCR()
     try:
         analyzed = client.post(f"/api/chapters/{chapter_id}/analyze")
@@ -48,6 +48,12 @@ def test_batch_analyze_and_clean(client: TestClient) -> None:
     assert analyzed.status_code == 200
     assert analyzed.json()["pages_analyzed"] == 1
     assert analyzed.json()["regions_created"] >= 1
+
+    # Detection is deliberately unclassified; classification authorizes cleanup.
+    regions = client.get(f"/api/pages/{page_id}/regions").json()
+    assert all(region["region_type"] == "unknown" for region in regions)
+    for region in regions:
+        assert client.patch(f"/api/regions/{region['id']}", json={"region_type": "dialogue"}).status_code == 200
 
     cleaned = client.post(f"/api/chapters/{chapter_id}/clean")
     assert cleaned.status_code == 200
@@ -67,11 +73,11 @@ def test_shared_source_supports_two_locale_views(client: TestClient) -> None:
     ).json()
     en = client.put(
         f"/api/regions/{region['id']}/localizations/en",
-        json={"text": "Hello!", "status": "approved"},
+        json={"text": "Hello!", "status": "needs-review"},
     )
     zh = client.put(
         f"/api/regions/{region['id']}/localizations/zh-TW",
-        json={"text": "你好！", "status": "approved"},
+        json={"text": "你好！", "status": "needs-review"},
     )
     assert en.status_code == zh.status_code == 200
 
