@@ -191,11 +191,24 @@ def test_legacy_v02_cli_cannot_bypass_v03_fresh_review_guard(tmp_path: Path) -> 
     prove(db)
     assert continuity.gate(db, "phase-10", "commit-a")["status"] == "passed"
 
-    # The legacy runtime knows only about the completion gate. The SQLite trigger
-    # is the final fail-closed boundary and must reject completion before review-clear.
     with pytest.raises(sqlite3.IntegrityError, match="fresh-review"):
         base.set_phase(db, "phase-10", "Continuity v0.3", "completed", commit_sha="commit-a")
 
     continuity.finding_state(db, "FND-10-001", "verified", None, None)
     assert continuity.review_gate(db, "phase-10", "commit-a", [])["status"] == "passed"
     base.set_phase(db, "phase-10", "Continuity v0.3", "completed", commit_sha="commit-a")
+
+
+def test_fresh_review_cannot_be_recorded_before_completion_gate(tmp_path: Path) -> None:
+    db = tmp_path / "state.db"
+    manifest = write_manifest(tmp_path)
+    seed(db, manifest)
+    assert continuity.capture_gate(db, "phase-10")["status"] == "passed"
+    continuity.finding_state(db, "FND-10-001", "verified", None, None)
+
+    with pytest.raises(sqlite3.IntegrityError, match="fresh review requires a passing completion gate"):
+        continuity.review_gate(db, "phase-10", "commit-a", [])
+
+    prove(db)
+    assert continuity.gate(db, "phase-10", "commit-a")["status"] == "passed"
+    assert continuity.review_gate(db, "phase-10", "commit-a", [])["status"] == "passed"
