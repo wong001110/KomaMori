@@ -26,11 +26,27 @@ class TesseractOCRProvider:
     def __init__(self, language: str = "jpn+jpn_vert") -> None:
         self.language = language
 
-    def read(self, image: Image.Image) -> tuple[str, float | None]:
+    def _language_for(self, image: Image.Image) -> str:
         width, height = image.size
-        lang = "jpn_vert" if height > width * 1.35 and "jpn" in self.language else self.language
-        text = pytesseract.image_to_string(image, lang=lang, config="--psm 6").strip()
-        return text, None
+        return "jpn_vert" if height > width * 1.35 and "jpn" in self.language else self.language
+
+    def read(self, image: Image.Image) -> tuple[str, float | None]:
+        lang = self._language_for(image)
+        config = "--psm 6"
+        text = pytesseract.image_to_string(image, lang=lang, config=config).strip()
+        data = pytesseract.image_to_data(image, lang=lang, config=config, output_type=pytesseract.Output.DICT)
+        confidences: list[float] = []
+        for token, raw_confidence in zip(data.get("text", []), data.get("conf", []), strict=False):
+            if not str(token).strip():
+                continue
+            try:
+                value = float(raw_confidence)
+            except (TypeError, ValueError):
+                continue
+            if value >= 0:
+                confidences.append(min(max(value / 100.0, 0.0), 1.0))
+        confidence = sum(confidences) / len(confidences) if confidences else None
+        return text, confidence
 
 
 class MangaOCRProvider:
