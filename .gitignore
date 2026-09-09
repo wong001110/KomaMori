@@ -8,9 +8,12 @@ __pycache__/
 node_modules/
 dist/
 .vite/
+apps/web/test-results/
+apps/web/playwright-report/
 
 # Runtime data
 data/
+.e2e/
 .agent-continuity/state.db
 .agent-continuity/state.db-*
 
