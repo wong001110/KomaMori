@@ -107,7 +107,7 @@ test("an unresolved unknown region cannot present a locale as Ready", async ({ p
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Saved")).toBeVisible();
   await page.getByRole("button", { name: "Approve" }).click();
-  await expect(page.getByText("Approved and reusable")).toBeVisible();
+  await expect(page.getByText("Approved; release review still required")).toBeVisible();
 
   await page.getByRole("button", { name: "Read" }).click();
   await expect(page.locator(".readiness-badge")).toHaveText("Partial");
@@ -129,7 +129,7 @@ test("a blocking locked-term QA error cannot present a locale as Ready", async (
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Saved")).toBeVisible();
   await page.getByRole("button", { name: "Approve" }).click();
-  await expect(page.getByText("Approved and reusable")).toBeVisible();
+  await expect(page.getByText("Approved; release review still required")).toBeVisible();
 
   await page.getByRole("button", { name: "Read" }).click();
   await expect(page.locator(".readiness-badge")).toHaveText("Review");
