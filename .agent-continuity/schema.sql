@@ -57,7 +57,6 @@ CREATE TABLE IF NOT EXISTS evidence (
   FOREIGN KEY(task_key) REFERENCES tasks(task_key)
 );
 
--- Agent Continuity v0.2: approved scope and completion traceability.
 CREATE TABLE IF NOT EXISTS scope_manifests (
   manifest_id TEXT PRIMARY KEY,
   project_key TEXT NOT NULL,
@@ -125,5 +124,100 @@ CREATE TABLE IF NOT EXISTS gate_runs (
   commit_sha TEXT NOT NULL,
   status TEXT NOT NULL CHECK(status IN ('passed','failed')),
   failures_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL
+);
+
+-- v0.3: preserve intent before it is compressed into a scope manifest.
+CREATE TABLE IF NOT EXISTS scope_sources (
+  source_key TEXT PRIMARY KEY,
+  phase_key TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('user','spec','reviewer','defect','policy','scope_change')),
+  summary TEXT NOT NULL,
+  disposition TEXT NOT NULL CHECK(disposition IN ('unmapped','mapped','deferred','waived','superseded','rejected')),
+  reason TEXT,
+  destination TEXT,
+  authority_ref TEXT,
+  origin_ref TEXT,
+  active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS source_requirements (
+  source_key TEXT NOT NULL,
+  requirement_key TEXT NOT NULL,
+  PRIMARY KEY(source_key, requirement_key),
+  FOREIGN KEY(source_key) REFERENCES scope_sources(source_key) ON DELETE CASCADE,
+  FOREIGN KEY(requirement_key) REFERENCES requirements(requirement_key) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS review_findings (
+  finding_key TEXT PRIMARY KEY,
+  phase_key TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('open','mapped','fixed','verified','deferred','waived','rejected','superseded')),
+  discovered_commit TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(finding_key) REFERENCES scope_sources(source_key) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS invariants (
+  invariant_key TEXT PRIMARY KEY,
+  phase_key TEXT NOT NULL,
+  description TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('active','deferred','retired')),
+  last_verified_commit TEXT,
+  active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS requirement_impacts (
+  requirement_key TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('domain','module','invariant')),
+  value TEXT NOT NULL,
+  PRIMARY KEY(requirement_key, kind, value),
+  FOREIGN KEY(requirement_key) REFERENCES requirements(requirement_key) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS check_impacts (
+  check_key TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('domain','module','invariant')),
+  value TEXT NOT NULL,
+  PRIMARY KEY(check_key, kind, value),
+  FOREIGN KEY(check_key) REFERENCES acceptance_checks(check_key) ON DELETE CASCADE
+);
+
+-- Existing acceptance_checks cannot be ALTERed safely in-place to add a stale status,
+-- so staleness is tracked orthogonally for backward-compatible upgrades.
+CREATE TABLE IF NOT EXISTS check_staleness (
+  check_key TEXT PRIMARY KEY,
+  stale INTEGER NOT NULL DEFAULT 1 CHECK(stale IN (0,1)),
+  reason TEXT NOT NULL,
+  changed_ref TEXT,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(check_key) REFERENCES acceptance_checks(check_key) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS scope_capture_gate_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  phase_key TEXT NOT NULL,
+  manifest_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('passed','failed')),
+  failures_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS fresh_review_gate_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  phase_key TEXT NOT NULL,
+  commit_sha TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('passed','failed')),
+  new_findings_json TEXT NOT NULL DEFAULT '[]',
+  unresolved_findings_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL
 );
