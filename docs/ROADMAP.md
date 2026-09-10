@@ -125,10 +125,10 @@ PR #11
 - `scope-complete` is explicitly distinct from `defect-free`
 - fixed the RegionEditor operation-feedback race surfaced by the fresh-review/E2E loop
 
-### Phase 11 — Integrity & release semantics 🚧
+### Phase 11 — Integrity & release semantics ✅
 PR #12
 
-Current required scope:
+Completed scope:
 
 - commit-safe DB/filesystem mutation ordering: prefer recoverable orphan files over dangling durable references
 - fail-safe re-analysis and unique generated mask/clean assets
@@ -141,7 +141,7 @@ Current required scope:
 - localhost-only default Compose exposure
 - backend invariant regression tests + negative browser release tests
 
-Phase 11 is not complete until its current manifest passes Scope Capture, Completion and Fresh Reviewer gates on the accepted commit and the squash merge is reconciled.
+Phase 11 passed Scope Capture, Completion and Fresh Reviewer gates on the accepted PR tree, was squash-merged, and was reconciled against the tree-equivalent merge commit.
 
 ## Explicitly unfinished engineering
 
@@ -187,4 +187,4 @@ Before introducing a new subsystem, answer at least one:
 - Does it enable a real experiment that current boundaries cannot support?
 - Does it have a genuinely different deployment/lifecycle requirement?
 
-If not, keep it inside the current modular application or leave it as an experiment.
+If not, keep the behavior inside the current modular application or leave it as an experiment.
