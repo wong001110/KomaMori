@@ -33,7 +33,7 @@ export function SeriesManagement({ series, busy, onSave, onDelete }: SeriesManag
 type ChapterManagementProps = {
   chapter: ChapterDetail;
   busy: boolean;
-  onSave: (title: string, number: number) => Promise<void>;
+  onSave: (title: string, displayNumber: string, sortOrder: number) => Promise<void>;
   onDelete: () => Promise<void>;
 };
 
@@ -41,14 +41,19 @@ export function ChapterManagement({ chapter, busy, onSave, onDelete }: ChapterMa
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    await onSave(String(form.get("title") ?? "").trim(), Number(form.get("number")));
+    await onSave(
+      String(form.get("title") ?? "").trim(),
+      String(form.get("displayNumber") ?? "").trim(),
+      Number(form.get("sortOrder"))
+    );
   };
 
   return (
-    <form className="management-form chapter-management" key={`${chapter.id}:${chapter.number}:${chapter.title}`} onSubmit={submit}>
+    <form className="management-form chapter-management" key={`${chapter.id}:${chapter.display_number}:${chapter.sort_order}:${chapter.title}`} onSubmit={submit}>
       <span className="kicker">Chapter settings</span>
       <div className="management-fields chapter-fields">
-        <input name="number" type="number" step="0.1" min="0" defaultValue={chapter.number} aria-label="Chapter number" required />
+        <input name="displayNumber" defaultValue={chapter.display_number} aria-label="Chapter display label" required />
+        <input name="sortOrder" type="number" step="0.01" defaultValue={chapter.sort_order} aria-label="Chapter sort order" required />
         <input name="title" defaultValue={chapter.title} aria-label="Chapter title" required />
       </div>
       <div className="management-actions">

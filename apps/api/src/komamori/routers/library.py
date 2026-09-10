@@ -48,6 +48,40 @@ def _renumber_pages_without_collisions(session: Session, pages: list[Page]) -> N
         page.page_index = position
 
 
+def _format_legacy_number(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else format(float(value), "g")
+
+
+def _next_legacy_number(session: Session, series_id: int) -> float:
+    """Reserve a negative bridge value so modern chapters do not consume legacy numbers."""
+    values = list(session.scalars(select(Chapter.number).where(Chapter.series_id == series_id)))
+    negative = [float(value) for value in values if float(value) < 0]
+    return min(negative) - 1.0 if negative else -1.0
+
+
+def _ensure_legacy_number_available(session: Session, series_id: int, number: float, exclude_id: int | None = None) -> None:
+    statement = select(Chapter.id).where(Chapter.series_id == series_id, Chapter.number == number)
+    if exclude_id is not None:
+        statement = statement.where(Chapter.id != exclude_id)
+    if session.scalar(statement) is not None:
+        raise HTTPException(status_code=409, detail="A chapter with this legacy number already exists")
+
+
+def _chapter_create_identity(session: Session, series_id: int, payload: ChapterCreate) -> tuple[float, str, float]:
+    if payload.number is None and payload.display_number is None and payload.sort_order is None:
+        raise HTTPException(status_code=422, detail="Provide display_number/sort_order or legacy number")
+    if payload.number is not None:
+        legacy_number = float(payload.number)
+        _ensure_legacy_number_available(session, series_id, legacy_number)
+    else:
+        legacy_number = _next_legacy_number(session, series_id)
+    sort_order = float(payload.sort_order if payload.sort_order is not None else (payload.number if payload.number is not None else legacy_number))
+    display_number = (payload.display_number or _format_legacy_number(payload.number if payload.number is not None else sort_order)).strip()
+    if not display_number:
+        raise HTTPException(status_code=422, detail="display_number must not be empty")
+    return legacy_number, display_number, sort_order
+
+
 @router.get("/series", response_model=list[SeriesRead])
 def list_series(session: Session = Depends(get_session)) -> list[Series]:
     return list(session.scalars(select(Series).order_by(Series.updated_at.desc())))
@@ -65,8 +99,19 @@ def create_series(payload: SeriesCreate, session: Session = Depends(get_session)
 @router.get("/series/{series_id}", response_model=SeriesDetail)
 def get_series(series_id: int, session: Session = Depends(get_session)) -> SeriesDetail:
     series = _get_or_404(session, Series, series_id)
-    chapters = list(session.scalars(select(Chapter).where(Chapter.series_id == series_id).order_by(Chapter.number)))
-    return SeriesDetail(id=series.id, title=series.title, source_language=series.source_language, chapters=[ChapterRead.model_validate(chapter) for chapter in chapters])
+    chapters = list(
+        session.scalars(
+            select(Chapter)
+            .where(Chapter.series_id == series_id)
+            .order_by(Chapter.sort_order, Chapter.id)
+        )
+    )
+    return SeriesDetail(
+        id=series.id,
+        title=series.title,
+        source_language=series.source_language,
+        chapters=[ChapterRead.model_validate(chapter) for chapter in chapters],
+    )
 
 
 @router.patch("/series/{series_id}", response_model=SeriesRead)
@@ -102,10 +147,14 @@ def delete_series(
 @router.post("/series/{series_id}/chapters", response_model=ChapterRead, status_code=status.HTTP_201_CREATED)
 def create_chapter(series_id: int, payload: ChapterCreate, session: Session = Depends(get_session)) -> Chapter:
     _get_or_404(session, Series, series_id)
-    existing = session.scalar(select(Chapter).where(Chapter.series_id == series_id, Chapter.number == payload.number))
-    if existing:
-        raise HTTPException(status_code=409, detail="A chapter with this number already exists")
-    chapter = Chapter(series_id=series_id, title=payload.title.strip(), number=payload.number)
+    legacy_number, display_number, sort_order = _chapter_create_identity(session, series_id, payload)
+    chapter = Chapter(
+        series_id=series_id,
+        title=payload.title.strip(),
+        number=legacy_number,
+        display_number=display_number,
+        sort_order=sort_order,
+    )
     session.add(chapter)
     session.commit()
     session.refresh(chapter)
@@ -116,28 +165,45 @@ def create_chapter(series_id: int, payload: ChapterCreate, session: Session = De
 def get_chapter(chapter_id: int, session: Session = Depends(get_session)) -> ChapterDetail:
     chapter = _get_or_404(session, Chapter, chapter_id)
     pages = list(session.scalars(select(Page).where(Page.chapter_id == chapter_id).order_by(Page.page_index)))
-    return ChapterDetail(id=chapter.id, series_id=chapter.series_id, title=chapter.title, number=chapter.number, status=chapter.status, pages=[PageRead.model_validate(page) for page in pages])
+    return ChapterDetail(
+        id=chapter.id,
+        series_id=chapter.series_id,
+        title=chapter.title,
+        number=chapter.number,
+        display_number=chapter.display_number,
+        sort_order=chapter.sort_order,
+        status=chapter.status,
+        pages=[PageRead.model_validate(page) for page in pages],
+    )
 
 
 @router.patch("/chapters/{chapter_id}", response_model=ChapterRead)
 def update_chapter(chapter_id: int, payload: ChapterUpdate, session: Session = Depends(get_session)) -> Chapter:
     chapter = _get_or_404(session, Chapter, chapter_id)
     changes = payload.model_dump(exclude_unset=True)
-    if "number" in changes and changes["number"] is not None and changes["number"] != chapter.number:
-        duplicate = session.scalar(
-            select(Chapter.id).where(
-                Chapter.series_id == chapter.series_id,
-                Chapter.number == changes["number"],
-                Chapter.id != chapter.id,
-            )
-        )
-        if duplicate is not None:
-            raise HTTPException(status_code=409, detail="A chapter with this number already exists")
+    modern_identity = "display_number" in changes or "sort_order" in changes
+
     if "title" in changes and changes["title"] is not None:
-        changes["title"] = changes["title"].strip()
-    for key, value in changes.items():
-        if value is not None:
-            setattr(chapter, key, value)
+        chapter.title = changes["title"].strip()
+
+    if "number" in changes and changes["number"] is not None:
+        legacy_number = float(changes["number"])
+        if legacy_number != chapter.number:
+            _ensure_legacy_number_available(session, chapter.series_id, legacy_number, chapter.id)
+            chapter.number = legacy_number
+        if not modern_identity:
+            chapter.display_number = _format_legacy_number(legacy_number)
+            chapter.sort_order = legacy_number
+
+    if "display_number" in changes and changes["display_number"] is not None:
+        label = str(changes["display_number"]).strip()
+        if not label:
+            raise HTTPException(status_code=422, detail="display_number must not be empty")
+        chapter.display_number = label
+
+    if "sort_order" in changes and changes["sort_order"] is not None:
+        chapter.sort_order = float(changes["sort_order"])
+
     session.commit()
     session.refresh(chapter)
     return chapter
@@ -222,7 +288,7 @@ def delete_page(
     page = _get_or_404(session, Page, page_id)
     regions = list(session.scalars(select(TextRegion).where(TextRegion.page_id == page.id)))
     obsolete: list[str | None] = [page.original_asset, page.clean_asset, *_region_asset_paths(regions)]
-    chapter_id = page.chapter_id
+    chapter_id = page.page_id if False else page.chapter_id
     session.delete(page)
     session.flush()
     remaining = list(session.scalars(select(Page).where(Page.chapter_id == chapter_id).order_by(Page.page_index, Page.id)))

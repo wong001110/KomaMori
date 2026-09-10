@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ORMModel(BaseModel):
@@ -32,12 +32,25 @@ class SeriesRead(ORMModel):
 
 class ChapterCreate(BaseModel):
     title: str = Field(min_length=1, max_length=300)
-    number: float
+    # `number` remains accepted for legacy clients. Modern clients use an
+    # explicit display label + sort order so hidden compatibility values never
+    # become user-visible ordering state.
+    number: float | None = None
+    display_number: str | None = Field(default=None, min_length=1, max_length=64)
+    sort_order: float | None = None
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> "ChapterCreate":
+        if self.number is None and (self.display_number is None or self.sort_order is None):
+            raise ValueError("Modern chapter creation requires both display_number and sort_order")
+        return self
 
 
 class ChapterUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=300)
     number: float | None = None
+    display_number: str | None = Field(default=None, min_length=1, max_length=64)
+    sort_order: float | None = None
 
 
 class ChapterRead(ORMModel):
@@ -45,6 +58,8 @@ class ChapterRead(ORMModel):
     series_id: int
     title: str
     number: float
+    display_number: str
+    sort_order: float
     status: str
 
 
@@ -95,6 +110,7 @@ class TextRegionRead(ORMModel):
     geometry: list[list[float]]
     source_text: str
     ocr_confidence: float | None
+    ocr_provenance: dict[str, Any]
     reading_order: int
     mask_asset: str | None
     source_style: dict[str, Any]
@@ -150,6 +166,7 @@ class LocalizationRead(ORMModel):
     text: str
     status: str
     source: str
+    provenance: dict[str, Any]
     quality_metadata: dict[str, Any]
     layout: dict[str, Any]
 
@@ -219,6 +236,7 @@ class RegionLocalizationView(BaseModel):
     geometry: list[list[float]]
     source_text: str
     ocr_confidence: float | None
+    ocr_provenance: dict[str, Any]
     reading_order: int
     localization: LocalizationRead | None = None
 
@@ -238,5 +256,7 @@ class ChapterLocalizationView(BaseModel):
     series_id: int
     title: str
     number: float
+    display_number: str
+    sort_order: float
     locale: str
     pages: list[PageLocalizationView]

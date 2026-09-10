@@ -25,8 +25,43 @@ def _baseline(connection: Connection) -> None:
     Base.metadata.create_all(bind=connection)
 
 
+def _columns(connection: Connection, table: str) -> set[str]:
+    return {str(row[1]) for row in connection.exec_driver_sql(f"PRAGMA table_info({table})")}
+
+
+def _add_column(connection: Connection, table: str, name: str, ddl: str) -> None:
+    if name not in _columns(connection, table):
+        connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
+def _chapter_identity_and_provenance(connection: Connection) -> None:
+    """Add v2 chapter identity and machine-output provenance without rebuilding tables."""
+    _add_column(connection, "chapters", "display_number", "TEXT NOT NULL DEFAULT ''")
+    _add_column(connection, "chapters", "sort_order", "FLOAT NOT NULL DEFAULT 0")
+    _add_column(connection, "text_regions", "ocr_provenance", "JSON NOT NULL DEFAULT '{}'")
+    _add_column(connection, "localizations", "provenance", "JSON NOT NULL DEFAULT '{}'")
+
+    connection.exec_driver_sql(
+        """
+        UPDATE chapters
+        SET display_number = CASE
+          WHEN number = CAST(number AS INTEGER) THEN CAST(CAST(number AS INTEGER) AS TEXT)
+          ELSE CAST(number AS TEXT)
+        END
+        WHERE display_number IS NULL OR TRIM(display_number) = ''
+        """
+    )
+    connection.exec_driver_sql(
+        "UPDATE chapters SET sort_order = number WHERE sort_order IS NULL OR sort_order = 0"
+    )
+    connection.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_chapters_sort_order ON chapters(sort_order)"
+    )
+
+
 MIGRATIONS = (
     Migration(1, "structured-mvp-baseline", _baseline),
+    Migration(2, "chapter-identity-and-provenance", _chapter_identity_and_provenance),
 )
 
 

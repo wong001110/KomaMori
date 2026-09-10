@@ -10,7 +10,7 @@ from ..models import ApprovedTranslation, Chapter, Localization, LocalizationTer
 from ..quality import chapter_qa_issues, locked_terms_for_source, terms_for
 from ..region_types import TRANSLATABLE_REGION_TYPES
 from ..schemas import ApprovalResult, LocalizationRead, LocalizationTermCreate, LocalizationTermRead, LocalizationUpsert, LocalizeChapterRequest, LocalizeChapterResult, QAResult
-from ..translation import TranslationProvider, TranslationRequest, get_translation_provider
+from ..translation import TranslationProvider, TranslationRequest, get_translation_provider, translation_provenance
 
 router = APIRouter(prefix="/api", tags=["localization"])
 
@@ -120,6 +120,7 @@ def upsert_localization(region_id: int, locale: str, payload: LocalizationUpsert
         )
     )
     computed_layout = payload.layout or layout_payload(payload.text, region.geometry)
+    manual_provenance = {"schema_version": 1, "kind": "manual"}
     if localization is None:
         effective_status = "needs-review" if payload.status == "approved" else payload.status
         localization = Localization(
@@ -128,6 +129,7 @@ def upsert_localization(region_id: int, locale: str, payload: LocalizationUpsert
             text=payload.text,
             status=effective_status,
             source="manual",
+            provenance=manual_provenance,
             layout=computed_layout,
         )
         session.add(localization)
@@ -143,6 +145,7 @@ def upsert_localization(region_id: int, locale: str, payload: LocalizationUpsert
         localization.text = payload.text
         localization.status = effective_status
         localization.source = "manual"
+        localization.provenance = manual_provenance
         localization.layout = computed_layout
         if text_changed and was_approved:
             _clear_approved_memory_for_region(session, region, locale)
@@ -195,21 +198,26 @@ def localize_chapter(
                 ApprovedTranslation.source_text == region.source_text,
             )
         )
+        translation_request = TranslationRequest(
+            source_text=region.source_text,
+            source_language=series.source_language,
+            target_locale=locale,
+            nearby_context=history[-payload.context_regions :] if payload.context_regions else [],
+            locked_terms=locked_terms_for_source(terms, region.source_text),
+        )
         if approved:
             translated = approved.target_text
             source = "approved-memory"
+            provenance = {
+                "schema_version": 1,
+                "kind": "approved-memory",
+                "memory_provenance": approved.provenance,
+            }
             reused += 1
         else:
-            translated = provider.translate(
-                TranslationRequest(
-                    source_text=region.source_text,
-                    source_language=series.source_language,
-                    target_locale=locale,
-                    nearby_context=history[-payload.context_regions :] if payload.context_regions else [],
-                    locked_terms=locked_terms_for_source(terms, region.source_text),
-                )
-            )
+            translated = provider.translate(translation_request)
             source = "machine"
+            provenance = translation_provenance(provider, translation_request)
             created += 1
         layout = layout_payload(translated, region.geometry)
         quality = {"fitStatus": layout.get("fitStatus")}
@@ -220,6 +228,7 @@ def localize_chapter(
                 text=translated,
                 status="needs-review",
                 source=source,
+                provenance=provenance,
                 quality_metadata=quality,
                 layout=layout,
             )
@@ -228,6 +237,7 @@ def localize_chapter(
             existing.text = translated
             existing.status = "needs-review"
             existing.source = source
+            existing.provenance = provenance
             existing.quality_metadata = quality
             existing.layout = layout
         history.append(region.source_text)

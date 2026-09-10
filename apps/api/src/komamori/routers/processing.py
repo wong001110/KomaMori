@@ -52,6 +52,7 @@ def _analyze_page(
                 geometry=result.geometry,
                 source_text=result.text,
                 ocr_confidence=result.confidence,
+                ocr_provenance=result.provenance,
                 reading_order=index,
             )
         )

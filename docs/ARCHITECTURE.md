@@ -2,7 +2,7 @@
 
 ## 1. Architectural goal
 
-KomaMori is an **experimental modular monolith** for self-hosted manga localization and reading. Product/data orchestration, OCR/CV processing, localization, review, migrations, workbench behavior and Reader APIs stay inside one FastAPI application until a measured deployment or lifecycle boundary justifies separation.
+KomaMori is an **experimental modular monolith** for self-hosted manga localization and reading. Product/data orchestration, OCR/CV processing, localization, review, migrations, maintenance tooling, workbench behavior and Reader APIs stay inside one FastAPI application until a measured deployment or lifecycle boundary justifies separation.
 
 Main application concerns:
 
@@ -10,7 +10,7 @@ Main application concerns:
 2. Content processing and derived assets
 3. Localization / review / QA
 4. Web workbench / Reader
-5. Runtime persistence lifecycle
+5. Runtime persistence + maintenance lifecycle
 
 ## 2. Self-host topology
 
@@ -47,19 +47,20 @@ Docker Compose binds the web app to host loopback on `127.0.0.1:8787` by default
 | Concern | Choice |
 | --- | --- |
 | Web | React 19 + Vite + TypeScript |
+| Frontend reproducibility | committed npm lockfile + `npm ci` in CI/container |
 | Editor/Reader rendering | structured HTML/CSS overlays |
 | API | FastAPI |
 | ORM | SQLAlchemy |
 | Database | SQLite |
-| Schema lifecycle | versioned in-app migration ledger |
-| Binary assets | local filesystem |
+| Schema lifecycle | versioned additive in-app migration ledger |
+| Binary assets | local filesystem + reference-aware audit/GC |
 | Archive import | bounded ZIP/CBZ parsing |
 | Image inspection | Pillow with pixel bounds |
 | Detection baseline | OpenCV heuristic |
-| OCR baseline | Tesseract Japanese |
-| Optional OCR | MangaOCR |
+| OCR baseline | Tesseract Japanese + structured provenance |
+| Optional OCR | MangaOCR + structured provenance |
 | Cleanup | persisted masks + OpenCV Telea inpainting |
-| Translation | OpenAI-compatible provider abstraction |
+| Translation | OpenAI-compatible provider abstraction + structured provenance |
 | QA | deterministic application checks + publication readiness gate |
 | Browser verification | Playwright positive + negative release workflows |
 | Deployment | Docker Compose + Nginx, localhost-only default bind |
@@ -73,6 +74,9 @@ A translated bitmap is never the source of truth.
 ```text
 Series
 └── Chapter
+    ├── number             legacy numeric compatibility bridge
+    ├── displayNumber      human-facing label: 1 / 10.5 / Extra / Prologue
+    ├── sortOrder          independent numeric ordering key
     └── Page
         ├── originalAsset       immutable file version
         ├── cleanAsset?         derived
@@ -81,6 +85,7 @@ Series
             ├── geometry
             ├── sourceText
             ├── ocrConfidence?
+            ├── ocrProvenance   provider/config metadata, no secrets
             ├── readingOrder
             ├── maskAsset?      derived
             ├── sourceStyle
@@ -88,12 +93,15 @@ Series
                 ├── locale
                 ├── text
                 ├── status
-                ├── source/provenance
+                ├── source
+                ├── provenance  machine/manual/approved-memory metadata
                 ├── qualityMetadata
                 └── layout
 ```
 
-Original asset **files** are immutable once written. Page recovery does not edit an original file in place: replacement writes a new unique original asset path, atomically moves durable page state to that path, invalidates obsolete page-bound regions/localizations/masks/clean state, then removes old files after commit.
+`Chapter.number` remains only as an additive compatibility bridge for pre-v2 API/database state. Product identity and ordering use `display_number` and `sort_order`. Existing rows are backfilled from their numeric value; modern chapters receive a non-user-facing legacy sentinel so arbitrary labels do not consume the positive legacy number namespace.
+
+Original asset **files** are immutable once written. Page recovery does not edit an original file in place: replacement writes a new unique original asset path, moves durable page state to that path, invalidates obsolete page-bound regions/localizations/masks/clean state, commits, then removes old files after commit.
 
 `TextRegion` is deliberately broader than `Bubble`. Supported types include:
 
@@ -171,7 +179,23 @@ commit durable DB references/state
 best-effort remove obsolete old assets
 ```
 
-A failed new writer removes its partial new file. A DB commit failure removes newly prepared files and leaves previously referenced files intact. A crash during post-commit cleanup can leave an **orphan file**, which is safer and recoverable compared with a DB row pointing at an asset deleted before commit. Orphan audit/GC is explicitly deferred.
+A failed new writer removes its partial new file. A DB commit failure removes newly prepared files and leaves previously referenced files intact. A crash during post-commit cleanup can leave an **orphan file**, which is safer and recoverable than a DB row pointing at an asset deleted before commit.
+
+### Asset audit / garbage collection
+
+Phase 12 adds reference-aware maintenance rather than pretending SQLite and the filesystem are one transaction. The audit derives durable references from `Page.original_asset`, `Page.clean_asset`, and `TextRegion.mask_asset`, then compares them with files under the configured asset root.
+
+```text
+DB references + filesystem scan
+          ↓
+referenced existing
+missing durable references
+orphan files
+          ↓
+dry-run by default
+```
+
+Deletion mode is deliberately conservative: candidates must remain unreferenced on repeated DB reads and be older than the configured grace period (one hour by default). Path escape or absolute durable references fail closed. The grace period protects the short commit-first window where a unique new file exists before its DB reference is committed.
 
 ## 7. Region correction and page recovery
 
@@ -194,7 +218,7 @@ The Library additionally supports imported page recovery:
 
 Reader mode does not render `unknown` or `sfx` overlays, while Workbench keeps them visible for correction.
 
-## 8. Localization store
+## 8. Localization store and provenance
 
 KomaMori keeps useful CAT-style durable decisions without creating separate enterprise CAT services.
 
@@ -219,6 +243,14 @@ A locked term matches either its canonical source or configured aliases. The exa
 
 Approved translations are exact source-text reuse, scoped to series + locale. `approved` is a human workflow state; **reusable** is stricter. Reuse memory is populated only for a translatable region with nonempty source and no blocking deterministic QA error. Unknown/SFX or blocking-QA-invalid approvals therefore cannot pollute approved-memory reuse.
 
+### Machine-output provenance
+
+Machine output records reproducibility-oriented metadata but deliberately excludes credentials and full secret-bearing request payloads.
+
+OCR provenance records a schema version plus the adapter/provider and relevant non-secret configuration such as Tesseract language/PSM or the MangaOCR adapter identity.
+
+Machine translation provenance records a schema version, provider adapter, model when available, prompt-version identifier, temperature, context-region count, and locked-term count. It does **not** persist API keys, Authorization headers, or a full prompt dump. Manual edits and approved-memory reuse receive explicit non-machine provenance kinds so downstream inspection can distinguish how text entered the system.
+
 ## 9. Translation execution
 
 For each translatable region the baseline request receives:
@@ -242,11 +274,11 @@ MangaOCR currently returns no confidence through the provider contract.
 Shared deterministic QA checks include:
 
 ```text
-translatable region missing source?     error
-missing translation?                    error
-locked canonical/alias term violated?   error
+translatable region missing source?      error
+missing translation?                     error
+locked canonical/alias term violated?    error
 provider OCR confidence below threshold? warning
-layout poor-fit?                         warning
+layout poor-fit?                          warning
 ```
 
 Tesseract confidence is an engine signal, not a calibrated probability of correctness.
@@ -278,7 +310,14 @@ Warnings such as low OCR confidence or poor fit remain visible to QA but do not 
 
 ## 12. Runtime database lifecycle
 
-Application startup runs a versioned migration runner. A `schema_migrations` ledger records applied versions. The current baseline migration can adopt an existing MVP database by creating only missing schema objects; existing rows are preserved.
+Application startup runs a versioned migration runner. A `schema_migrations` ledger records applied versions.
+
+```text
+v1 structured-mvp-baseline
+v2 chapter-identity-and-provenance
+```
+
+The v2 migration is additive: it introduces chapter `display_number` / `sort_order`, TextRegion OCR provenance, and Localization provenance, then backfills existing chapter rows from the legacy numeric field. Existing rows are preserved.
 
 File-backed SQLite connections explicitly enable:
 
@@ -303,7 +342,13 @@ Direct images and CBZ/ZIP uploads are bounded before expensive allocation where 
 
 These are self-host safety bounds rather than a claim that KomaMori is a hardened hostile multi-tenant upload service.
 
-## 14. Execution and verification model
+## 14. Dependency reproducibility
+
+The web application commits npm's registry-resolved lockfile. Development, frontend CI, browser E2E and the production web Docker build use `npm ci` rather than resolving caret ranges independently on every run. The lockfile was generated by npm in GitHub Actions rather than hand-authored.
+
+This hardens JavaScript dependency reproducibility; Python dependencies still use bounded version ranges in `pyproject.toml` and can be locked separately if reproducible Python environments become a measured need.
+
+## 15. Execution and verification model
 
 Processing endpoints are currently synchronous:
 
@@ -317,18 +362,18 @@ response
 
 A background queue remains deferred until chapter workloads make synchronous execution materially harmful.
 
-Pull requests verify four independent layers:
+Pull requests verify four independent runtime layers:
 
 ```text
 backend pytest
-frontend TypeScript + Vite build
-Docker Compose/container build
-Playwright full-stack browser workflows
+frontend TypeScript + Vite build via npm ci
+Docker Compose/container build via committed lockfile
+Playwright full-stack browser workflows via npm ci
 ```
 
-Browser tests start real FastAPI + Vite processes and exercise public UI/API paths. They include both the positive manual-localization path and negative publication invariants such as unresolved unknown and locked-term QA blockers.
+Browser tests start real FastAPI + Vite processes and exercise public UI/API paths. They include both the positive manual-localization path and negative publication invariants such as unresolved unknown and locked-term QA blockers, plus chapter display-label/sort-order behavior.
 
-## 15. Agent Continuity is separate from runtime state
+## 16. Agent Continuity is separate from runtime state
 
 KomaMori runtime SQLite and Agent Continuity SQLite are separate databases.
 
@@ -340,11 +385,13 @@ KomaMori runtime DB
 → development source/finding/phase/task/requirement/check/invariant/evidence/gate state
 ```
 
-Git-tracked `.agent-continuity/plans/*.toml` manifests define captured development scope. Agent Continuity v0.3 adds durable source/finding capture, Scope Capture Gate, cross-cutting invariants, impact-driven stale evidence, Completion Gate and mandatory Fresh Reviewer Gate. A fresh reviewer finding invalidates prior capture/completion authority until the finding is mapped/disposed, scope is recaptured and current evidence is reverified.
+Git-tracked `.agent-continuity/plans/*.toml` manifests define captured development scope. Agent Continuity v0.3.x adds durable source/finding capture, Scope Capture Gate, cross-cutting invariants, impact-driven stale evidence, Completion Gate and mandatory Fresh Reviewer Gate. A fresh reviewer finding invalidates prior capture/completion authority until the finding is mapped/disposed, scope is recaptured and current evidence is reverified.
+
+A user-owned/external administration item can remain explicit as a handoff without blocking unrelated agent-executable work. Conversely, a finalized phase is not an Execute-mode stopping point when executable work from the requested backlog remains.
 
 See [`AGENT_CONTINUITY.md`](AGENT_CONTINUITY.md).
 
-## 16. Architecture guardrails
+## 17. Architecture guardrails
 
 Before adding a subsystem, ask:
 

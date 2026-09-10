@@ -46,15 +46,19 @@ function whitePng(width: number, height: number): Buffer {
 
 const WHITE_PAGE = whitePng(320, 480);
 
-async function openFreshWorkbench(page: Page, seriesTitle: string, chapterNumber: string) {
+async function createSeries(page: Page, title: string) {
   await page.goto("/");
-  await page.getByPlaceholder("Series title").fill(seriesTitle);
+  await page.getByPlaceholder("Series title").fill(title);
   await page.getByLabel("Source language").fill("ja");
   await page.locator("form.stack-form").getByRole("button", { name: "Add" }).click();
-  await expect(page.getByRole("heading", { name: seriesTitle })).toBeVisible();
+  await expect(page.getByRole("heading", { name: title })).toBeVisible();
+}
 
-  await page.locator("form.chapter-form input[name=number]").fill(chapterNumber);
-  await page.getByPlaceholder("Chapter title").fill(`Chapter ${chapterNumber}`);
+async function openFreshWorkbench(page: Page, seriesTitle: string, chapterLabel: string, sortOrder: number) {
+  await createSeries(page, seriesTitle);
+  await page.getByLabel("New chapter display label").fill(chapterLabel);
+  await page.getByLabel("New chapter sort order").fill(String(sortOrder));
+  await page.getByPlaceholder("Chapter title").fill(`Chapter ${chapterLabel}`);
   await page.getByRole("button", { name: "Add chapter" }).click();
   await page.locator('input[name="pages"]').setInputFiles({
     name: "001.png",
@@ -65,6 +69,7 @@ async function openFreshWorkbench(page: Page, seriesTitle: string, chapterNumber
   await expect(page.getByText("1 pages ready")).toBeVisible();
   await page.getByRole("button", { name: "Open workbench" }).click();
   await expect(page.getByText("Localization workbench")).toBeVisible();
+  await expect(page.getByRole("heading", { name: `#${chapterLabel} Chapter ${chapterLabel}` })).toBeVisible();
 }
 
 async function drawRegion(page: Page) {
@@ -80,8 +85,26 @@ async function drawRegion(page: Page) {
   await expect(page.getByLabel("Type")).toBeVisible();
 }
 
+test("chapter display labels are independent from numeric sort order", async ({ page }) => {
+  await createSeries(page, "E2E Chapter Identity");
+  await page.getByLabel("New chapter display label").fill("Extra");
+  await page.getByLabel("New chapter sort order").fill("10.5");
+  await page.getByPlaceholder("Chapter title").fill("Bonus story");
+  await page.getByRole("button", { name: "Add chapter" }).click();
+
+  await expect(page.getByText("#Extra")).toBeVisible();
+  await expect(page.getByText("order 10.5")).toBeVisible();
+
+  await page.getByLabel("Chapter display label", { exact: true }).fill("Prologue");
+  await page.getByLabel("Chapter sort order", { exact: true }).fill("0.25");
+  await page.getByRole("button", { name: "Save chapter" }).click();
+
+  await expect(page.getByText("#Prologue")).toBeVisible();
+  await expect(page.getByText("order 0.25")).toBeVisible();
+});
+
 test("manual localization reaches a Ready reader from the real UI", async ({ page }) => {
-  await openFreshWorkbench(page, "E2E Series", "1");
+  await openFreshWorkbench(page, "E2E Series", "Extra", 1);
   await drawRegion(page);
 
   await page.getByLabel("Type").selectOption("dialogue");
@@ -94,11 +117,12 @@ test("manual localization reaches a Ready reader from the real UI", async ({ pag
 
   await page.getByRole("button", { name: "Read" }).click();
   await expect(page.locator(".readiness-badge")).toHaveText("Ready");
+  await expect(page.getByText("#Extra Chapter Extra")).toBeVisible();
   await expect(page.locator(".reader-overlay")).toContainText("Hello from E2E");
 });
 
 test("an unresolved unknown region cannot present a locale as Ready", async ({ page }) => {
-  await openFreshWorkbench(page, "E2E Unknown Gate", "11");
+  await openFreshWorkbench(page, "E2E Unknown Gate", "11", 11);
   await drawRegion(page);
 
   await expect(page.getByLabel("Type")).toHaveValue("unknown");
@@ -115,7 +139,7 @@ test("an unresolved unknown region cannot present a locale as Ready", async ({ p
 });
 
 test("a blocking locked-term QA error cannot present a locale as Ready", async ({ page }) => {
-  await openFreshWorkbench(page, "E2E QA Gate", "12");
+  await openFreshWorkbench(page, "E2E QA Gate", "12", 12);
 
   await page.getByPlaceholder("Source term").fill("こんにちは");
   await page.getByPlaceholder("en term").fill("Greetings");

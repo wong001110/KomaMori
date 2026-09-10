@@ -133,6 +133,7 @@ def chapter_localization_view(
                 geometry=region.geometry,
                 source_text=region.source_text,
                 ocr_confidence=region.ocr_confidence,
+                ocr_provenance=region.ocr_provenance or {},
                 reading_order=region.reading_order,
                 localization=(
                     LocalizationRead.model_validate(localization_by_region[region.id])
@@ -158,6 +159,8 @@ def chapter_localization_view(
         series_id=chapter.series_id,
         title=chapter.title,
         number=chapter.number,
+        display_number=chapter.display_number,
+        sort_order=chapter.sort_order,
         locale=locale,
         pages=page_views,
     )

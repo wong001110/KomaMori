@@ -141,7 +141,7 @@ export function Workbench({ chapterId, seriesId, initialLocale, onLocaleChange, 
         </div>
         <div className="chapter-title">
           <span className="kicker">Localization workbench</span>
-          <h1>{view ? `#${view.number} ${view.title}` : "Loading chapter…"}</h1>
+          <h1>{view ? `#${view.display_number} ${view.title}` : "Loading chapter…"}</h1>
         </div>
         <div className="header-actions">
           <label className="locale-control">
