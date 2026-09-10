@@ -350,7 +350,7 @@ modules = ["README.md", "docs/ROADMAP.md", "docs/ARCHITECTURE.md"]
 invariants = []
 [[requirements.checks]]
 id = "P11-R07-C01"
-description = "ROADMAP records Phase 9/10 completion, Phase 11 active scope, and explicit deferred follow-ups"
+description = "ROADMAP records Phase 9/10/11 completion and explicit deferred follow-ups"
 evidence = ["review"]
 [[requirements.checks]]
 id = "P11-R07-C02"
