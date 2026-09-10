@@ -33,7 +33,11 @@ class Chapter(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     series_id: Mapped[int] = mapped_column(ForeignKey("series.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(300))
+    # Legacy numeric bridge retained so existing SQLite databases and API clients
+    # can migrate additively. New product semantics use display_number + sort_order.
     number: Mapped[float] = mapped_column(Float)
+    display_number: Mapped[str] = mapped_column(String(64), default="")
+    sort_order: Mapped[float] = mapped_column(Float, default=0.0, index=True)
     status: Mapped[str] = mapped_column(String(32), default="raw")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
@@ -68,6 +72,7 @@ class TextRegion(Base):
     geometry: Mapped[list[list[float]]] = mapped_column(JSON, default=list)
     source_text: Mapped[str] = mapped_column(Text, default="")
     ocr_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ocr_provenance: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     reading_order: Mapped[int] = mapped_column(Integer, default=0)
     mask_asset: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_style: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
@@ -86,6 +91,7 @@ class Localization(Base):
     text: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(32), default="draft")
     source: Mapped[str] = mapped_column(String(32), default="machine")
+    provenance: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     quality_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     layout: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)

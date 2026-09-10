@@ -1,0 +1,202 @@
+manifest_version = 2
+id = "phase-12"
+project = "komamori"
+title = "Backlog hardening and reproducibility"
+
+[[sources]]
+id = "SRC-12-001"
+kind = "user"
+summary = "Continue executing remaining actionable KomaMori reviewer backlog; GitHub branch protection is user-owned and must not block agent execution"
+disposition = "mapped"
+origin_ref = "current conversation"
+
+[[sources]]
+id = "FND-11-010"
+kind = "reviewer"
+summary = "Frontend dependency resolution is not fully reproducible"
+severity = "P2"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
+id = "FND-11-011"
+kind = "reviewer"
+summary = "OCR/LLM provider and prompt provenance is too thin for future model benchmarking"
+severity = "P2"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
+id = "FND-11-012"
+kind = "reviewer"
+summary = "Chapter display number is modeled as float and cannot represent real manga numbering cleanly"
+severity = "P2"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
+id = "FND-11-017"
+kind = "reviewer"
+summary = "Commit-first best-effort cleanup can leave orphan assets after interruption"
+severity = "P2"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
+id = "FND-11-013"
+kind = "policy"
+summary = "Main branch protection and required checks are managed by the repository owner"
+severity = "P2"
+disposition = "deferred"
+reason = "User explicitly owns GitHub branch-protection configuration; this is a repository administration handoff, not an agent blocker."
+destination = "user-owned:repository-policy"
+
+[[sources]]
+id = "FND-12-001"
+kind = "reviewer"
+summary = "Modern chapter identity initially consumed the positive legacy number namespace"
+description = "A modern display_number/sort_order chapter must not make a later legacy client number collide with an invisible compatibility value."
+severity = "P1"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[sources]]
+id = "FND-12-002"
+kind = "reviewer"
+summary = "Asset GC repeated reference checks can share one SQLite read snapshot and miss concurrent committed references"
+description = "Deletion safety checks must establish fresh read transactions and refuse sessions with pending writes before unlinking an orphan candidate."
+severity = "P1"
+disposition = "mapped"
+finding_status = "mapped"
+
+[[invariants]]
+id = "INV-REPRO-001"
+description = "Frontend CI and container builds resolve dependencies from a committed lockfile using npm ci."
+severity = "P2"
+status = "active"
+
+[[invariants]]
+id = "INV-PROV-001"
+description = "Machine OCR and translation outputs retain enough structured provenance to identify provider/model/config/prompt version without storing secrets."
+severity = "P2"
+status = "active"
+
+[[invariants]]
+id = "INV-CHAPTER-001"
+description = "Chapter display identity supports non-numeric manga labels independently from deterministic sort order while preserving legacy rows and the positive legacy number namespace."
+severity = "P2"
+status = "active"
+
+[[invariants]]
+id = "INV-GC-001"
+description = "Asset garbage collection never deletes a path referenced by durable application state; deletion uses fresh reference snapshots and dry-run is the default."
+severity = "P1"
+status = "active"
+
+[[requirements]]
+id = "P12-R01"
+title = "Deterministic frontend dependency resolution"
+disposition = "required"
+source_refs = ["SRC-12-001", "FND-11-010"]
+[requirements.impacts]
+domains = ["dependency-reproducibility", "ci", "containers"]
+modules = ["apps/web/package-lock.json", ".github/workflows/ci.yml", "docker/web.Dockerfile"]
+invariants = ["INV-REPRO-001"]
+[[requirements.checks]]
+id = "P12-R01-C01"
+description = "A registry-resolved package-lock.json is committed rather than hand-authored"
+evidence = ["artifact", "review"]
+[[requirements.checks]]
+id = "P12-R01-C02"
+description = "Frontend and E2E CI use npm ci against the committed lockfile"
+evidence = ["build", "e2e", "review"]
+[[requirements.checks]]
+id = "P12-R01-C03"
+description = "Web container build copies package.json + package-lock.json and installs with npm ci"
+evidence = ["container", "review"]
+
+[[requirements]]
+id = "P12-R02"
+title = "Machine-output provenance"
+disposition = "required"
+source_refs = ["FND-11-011"]
+[requirements.impacts]
+domains = ["provenance", "experiments", "ocr", "translation"]
+modules = ["apps/api/src/komamori/models.py", "apps/api/src/komamori/migrations.py", "apps/api/src/komamori/processing.py", "apps/api/src/komamori/translation.py", "apps/api/src/komamori/routers/processing.py", "apps/api/src/komamori/routers/localization.py", "apps/api/src/komamori/schemas.py"]
+invariants = ["INV-PROV-001"]
+[[requirements.checks]]
+id = "P12-R02-C01"
+description = "TextRegion persists OCR provider/config provenance for newly analyzed regions and exposes it through API reads"
+evidence = ["test", "review"]
+[[requirements.checks]]
+id = "P12-R02-C02"
+description = "Machine Localization persists translation provider/model/prompt-version/config provenance without API keys or full secret-bearing request payloads"
+evidence = ["test", "review"]
+[[requirements.checks]]
+id = "P12-R02-C03"
+description = "Manual and approved-memory localization paths retain explicit non-machine provenance semantics"
+evidence = ["test", "review"]
+[[requirements.checks]]
+id = "P12-R02-C04"
+description = "Existing databases migrate additively without losing rows"
+evidence = ["test"]
+
+[[requirements]]
+id = "P12-R03"
+title = "Chapter display identity and sort order v2"
+disposition = "required"
+source_refs = ["FND-11-012", "FND-12-001"]
+[requirements.impacts]
+domains = ["chapter-model", "migration", "library-ui"]
+modules = ["apps/api/src/komamori/models.py", "apps/api/src/komamori/migrations.py", "apps/api/src/komamori/schemas.py", "apps/api/src/komamori/routers/library.py", "apps/web/src/api.ts", "apps/web/src/App.tsx", "apps/web/src/LibraryManagement.tsx"]
+invariants = ["INV-CHAPTER-001"]
+[[requirements.checks]]
+id = "P12-R03-C01"
+description = "Chapter stores display_number string separately from sort_order and legacy rows are backfilled from number"
+evidence = ["test", "review"]
+[[requirements.checks]]
+id = "P12-R03-C02"
+description = "Create/update accepts arbitrary nonempty display labels such as Extra or 10.5 while sorting deterministically by sort_order then id"
+evidence = ["test"]
+[[requirements.checks]]
+id = "P12-R03-C03"
+description = "Library UI edits and displays display_number independently from numeric sort_order"
+evidence = ["build", "e2e", "review"]
+[[requirements.checks]]
+id = "P12-R03-C04"
+description = "Legacy number input remains API-compatible during migration; modern chapters use a non-user-facing compatibility sentinel and do not consume positive legacy numbers"
+evidence = ["test", "review"]
+[[requirements.checks]]
+id = "P12-R03-C05"
+description = "Modern API create without explicit sort_order receives a deterministic user-visible next sort order rather than exposing the negative compatibility sentinel"
+evidence = ["test", "review"]
+
+[[requirements]]
+id = "P12-R04"
+title = "Safe orphan-asset audit and garbage collection"
+disposition = "required"
+source_refs = ["FND-11-017", "FND-12-002"]
+[requirements.impacts]
+domains = ["asset-lifecycle", "maintenance", "recovery"]
+modules = ["apps/api/src/komamori/asset_gc.py", "scripts/asset_gc.py", "apps/api/tests/test_asset_gc.py", "README.md"]
+invariants = ["INV-GC-001"]
+[[requirements.checks]]
+id = "P12-R04-C01"
+description = "Audit enumerates referenced, missing and orphan files from Page.original_asset/Page.clean_asset/TextRegion.mask_asset"
+evidence = ["test", "review"]
+[[requirements.checks]]
+id = "P12-R04-C02"
+description = "Dry-run is default and deletion mode removes only orphan files under the configured asset root"
+evidence = ["test", "review"]
+[[requirements.checks]]
+id = "P12-R04-C03"
+description = "GC refuses root/path escape, rejects symlink scan entries, refuses sessions with pending writes, and never removes a currently referenced asset"
+evidence = ["test", "review"]
+[[requirements.checks]]
+id = "P12-R04-C04"
+description = "Deletion safety rechecks use fresh database read transactions before unlinking candidates"
+evidence = ["test", "review"]
+[[requirements.checks]]
+id = "P12-R04-C05"
+description = "README documents audit/delete usage, fresh-reference checks and orphan-safe failure semantics"
+evidence = ["review"]

@@ -135,10 +135,12 @@ export default function App() {
     event.preventDefault();
     if (!selectedSeries) return;
     const form = new FormData(event.currentTarget);
+    const displayNumber = String(form.get("displayNumber") ?? "").trim();
+    const sortOrder = Number(form.get("sortOrder"));
     setBusy(true);
     setError(null);
     try {
-      const chapter = await api.createChapter(selectedSeries.id, String(form.get("title")), Number(form.get("number")));
+      const chapter = await api.createChapter(selectedSeries.id, String(form.get("title")), displayNumber, sortOrder);
       setSelectedSeries(await api.getSeries(selectedSeries.id));
       setSelectedChapter(await api.getChapter(chapter.id));
       event.currentTarget.reset();
@@ -158,12 +160,12 @@ export default function App() {
     }
   };
 
-  const saveChapter = async (title: string, number: number) => {
-    if (!selectedChapter || !selectedSeries || !title) return;
+  const saveChapter = async (title: string, displayNumber: string, sortOrder: number) => {
+    if (!selectedChapter || !selectedSeries || !title || !displayNumber || !Number.isFinite(sortOrder)) return;
     setBusy(true);
     setError(null);
     try {
-      await api.updateChapter(selectedChapter.id, { title, number });
+      await api.updateChapter(selectedChapter.id, { title, display_number: displayNumber, sort_order: sortOrder });
       setSelectedChapter(await api.getChapter(selectedChapter.id));
       setSelectedSeries(await api.getSeries(selectedSeries.id));
     } catch (reason) {
@@ -174,7 +176,7 @@ export default function App() {
   };
 
   const deleteChapter = async () => {
-    if (!selectedChapter || !selectedSeries || !window.confirm(`Delete chapter #${selectedChapter.number} “${selectedChapter.title}” and its assets?`)) return;
+    if (!selectedChapter || !selectedSeries || !window.confirm(`Delete chapter ${selectedChapter.display_number} “${selectedChapter.title}” and its assets?`)) return;
     setBusy(true);
     setError(null);
     try {
@@ -301,17 +303,18 @@ export default function App() {
                 <span>{selectedSeries.chapters.length} chapters</span>
               </div>
               <SeriesManagement series={selectedSeries} busy={busy} onSave={saveSeries} onDelete={deleteSeries} />
-              <form className="chapter-form" onSubmit={createChapter}>
-                <input name="number" type="number" step="0.1" min="0" placeholder="#" required />
+              <form className="chapter-form chapter-v2-form" onSubmit={createChapter}>
+                <input name="displayNumber" placeholder="Label (1 / Extra)" aria-label="New chapter display label" required />
+                <input name="sortOrder" type="number" step="0.01" placeholder="Order" aria-label="New chapter sort order" required />
                 <input name="title" placeholder="Chapter title" required />
                 <button disabled={busy}>Add chapter</button>
               </form>
               <div className="chapter-grid">
                 {selectedSeries.chapters.map((chapter) => (
                   <button className={selectedChapter?.id === chapter.id ? "chapter-card active" : "chapter-card"} key={chapter.id} onClick={() => chooseChapter(chapter)}>
-                    <span>#{chapter.number}</span>
+                    <span>#{chapter.display_number}</span>
                     <strong>{chapter.title}</strong>
-                    <small>{chapter.status}</small>
+                    <small>{chapter.status} · order {chapter.sort_order}</small>
                   </button>
                 ))}
               </div>
@@ -325,7 +328,7 @@ export default function App() {
           ) : (
             <>
               <div className="panel-heading compact">
-                <div><span className="kicker">Chapter {selectedChapter.number}</span><h2>{selectedChapter.title}</h2></div>
+                <div><span className="kicker">Chapter {selectedChapter.display_number}</span><h2>{selectedChapter.title}</h2></div>
               </div>
               <ChapterManagement chapter={selectedChapter} busy={busy} onSave={saveChapter} onDelete={deleteChapter} />
               {!selectedChapter.pages.length ? (

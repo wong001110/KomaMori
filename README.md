@@ -10,11 +10,15 @@ KomaMori is a personal technical exploration project for manga localization and 
 
 - image and CBZ/ZIP chapter import with bounded page/byte/pixel preflight
 - Series / Chapter create, edit and delete lifecycle
+- chapter display labels such as `1`, `10.5`, `Extra` or `Prologue`, with independent numeric sort order
+- legacy numeric chapter API compatibility through the additive v2 migration
 - recoverable page replace, delete and reorder lifecycle
 - original assets are immutable once written; page replacement creates a new original path and invalidates obsolete page-bound state instead of overwriting the old file in place
 - derived-asset cleanup follows commit-safe ordering: durable DB state commits before old referenced files are removed
+- dry-run-first asset audit/GC for referenced, missing and orphan files
 - automatic OpenCV text-region detection + Tesseract OCR
 - Tesseract word-confidence aggregation exposed to deterministic QA when available
+- secret-free OCR provenance for newly analyzed regions
 - safe automatic detections: new detected regions begin as `unknown`, not assumed dialogue
 - interactive region correction in the web workbench:
   - add
@@ -29,6 +33,8 @@ KomaMori is a personal technical exploration project for manga localization and 
 - destructive cleanup and automatic localization restricted to explicit safe region types
 - per-series locked terminology with aliases
 - OpenAI-compatible LLM translation provider with nearby-dialogue context
+- secret-free machine translation provenance: provider adapter/model, prompt version and non-sensitive generation/config metadata
+- explicit manual and approved-memory provenance
 - exact reuse of approved translations when the approval is eligible for reuse
 - terminology-policy changes invalidate affected review/reuse state
 - multiple target locales on one shared structured source
@@ -40,8 +46,9 @@ KomaMori is a personal technical exploration project for manga localization and 
 - multilingual Reader with Original / Localized switching and readiness disclosure
 - SQLite + local filesystem self-hosted persistence
 - file-backed SQLite uses foreign keys, WAL and a bounded busy timeout
-- versioned runtime database migration ledger
+- versioned additive runtime database migrations
 - localhost-only Docker Compose web exposure by default
+- committed npm lockfile with `npm ci` in frontend CI, E2E and web container builds
 - backend, frontend build, container build and browser E2E CI gates
 
 `unknown` and `sfx` regions are intentionally excluded from automatic cleanup/localization until explicitly handled. An unresolved `unknown` region also blocks locale `Ready`; a region explicitly classified as `sfx` does not. SFX reconstruction itself remains deferred.
@@ -53,7 +60,7 @@ Import manga / CBZ
         ↓
 Structured pages
         ↓
-Detect + OCR
+Detect + OCR + provenance
         ↓
 unknown TextRegions
         ↓
@@ -64,6 +71,7 @@ Human classify / correct geometry
 Persistent masks      Localization
 + clean page      terms/aliases + context
         │            + LLM/manual
+        │            + provenance
         └────────┬───────┘
                  ▼
            per-locale layout
@@ -81,7 +89,7 @@ Persistent masks      Localization
 
 Original asset files are never edited in place. A page replacement writes a new original asset, commits the new page identity/state, then best-effort removes obsolete old assets. Geometry/type changes invalidate affected clean/mask state, source-text changes invalidate translation approval/reuse state, and terminology-policy changes conservatively invalidate affected locale approval/reuse state.
 
-The cross-store failure rule is deliberate: **prefer a recoverable orphan file over a committed database reference to a file that was deleted before commit**. Interrupted post-commit cleanup may therefore leave an orphan asset; a future audit/GC command is tracked separately.
+The cross-store failure rule is deliberate: **prefer a recoverable orphan file over a committed database reference to a file that was deleted before commit**. Interrupted post-commit cleanup may therefore leave an orphan asset; use the audit/GC command below to inspect and clean those files safely.
 
 ## Quick start — Docker Compose
 
@@ -125,6 +133,8 @@ Without these variables, import, page recovery, region editing, cleanup, manual 
 
 Docker uses Tesseract Japanese OCR by default. Native development can optionally install the `mangaocr` extra and set `KOMAMORI_OCR_PROVIDER=mangaocr`. MangaOCR currently does not expose a confidence value through the KomaMori provider contract; confidence QA only runs when the selected provider returns confidence.
 
+Provenance deliberately excludes API keys, Authorization headers, provider credentials and complete prompt/request dumps. It records enough structured metadata to identify the machine path used without turning the database into a secret store.
+
 ## Local development
 
 ### API
@@ -138,11 +148,27 @@ make api
 
 ```bash
 cd apps/web
-npm install
+npm ci
 npm run dev
 ```
 
 Vite proxies `/api` to `http://localhost:8000`.
+
+### Asset audit / garbage collection
+
+Dry-run is the default:
+
+```bash
+python scripts/asset_gc.py
+```
+
+The report separates referenced existing files, missing durable references, orphan files, recent orphans skipped by the safety grace period, and deleted files. To remove confirmed old orphans:
+
+```bash
+python scripts/asset_gc.py --delete
+```
+
+Deletion performs repeated DB-reference checks and, by default, refuses to delete orphan files newer than one hour. This protects the commit-first window where a unique asset file may exist just before its DB reference is committed. Use `--grace-seconds` only when you understand that tradeoff; running aggressive cleanup while the app is actively writing assets is not recommended.
 
 ### Tests
 
@@ -161,9 +187,9 @@ npm run test:e2e
 Pull requests run:
 
 - backend pytest
-- TypeScript + Vite production build
-- Docker Compose configuration + API/Web image builds
-- Playwright full-stack browser workflows, including negative release invariants
+- TypeScript + Vite production build using `npm ci`
+- Docker Compose configuration + API/Web image builds using the committed web lockfile
+- Playwright full-stack browser workflows using `npm ci`, including negative release invariants
 
 ## Current architecture
 
@@ -177,11 +203,11 @@ Library / Workbench / Reader
   ▼
 FastAPI modular monolith
   ├── SQLite structured data + migration ledger
-  ├── local immutable-file asset store
+  ├── local immutable-file asset store + audit/GC
   ├── OpenCV processing + persistent masks
-  ├── Tesseract / optional MangaOCR
+  ├── Tesseract / optional MangaOCR + provenance
   ├── deterministic QA / readiness gate
-  └── OpenAI-compatible translation provider
+  └── OpenAI-compatible translation provider + provenance
 ```
 
 Core model:
@@ -189,6 +215,8 @@ Core model:
 ```text
 Series
 └── Chapter
+    ├── displayNumber             human-facing string
+    ├── sortOrder                 numeric ordering key
     └── Page
         ├── OriginalAsset          immutable file; replace creates a new path
         ├── CleanAsset?            derived
@@ -197,16 +225,18 @@ Series
             ├── geometry
             ├── sourceText
             ├── OCR confidence?
+            ├── OCR provenance
             ├── readingOrder
             ├── MaskAsset?         derived
             └── Localization[]
                 ├── locale
                 ├── text
                 ├── status
+                ├── source/provenance
                 └── layout
 ```
 
-The project intentionally remains a modular monolith. OCR, cleanup, localization, QA, migrations, workbench views and Reader behavior are application modules, not separately deployed microservices.
+The project intentionally remains a modular monolith. OCR, cleanup, localization, QA, migrations, workbench views, maintenance tooling and Reader behavior are application modules, not separately deployed microservices.
 
 ## Localization data philosophy
 
@@ -218,6 +248,7 @@ approved reusable translations
 source/target locale
 review status
 layout metadata
+machine/manual provenance
 ```
 
 `approved` and `reusable` are related but not identical. A human can mark a translation approved, while reuse memory is populated only for a translatable region with nonempty source text and no blocking deterministic QA error. This prevents unresolved/QA-invalid text from propagating through approved-memory reuse.
@@ -236,11 +267,8 @@ Dynamic interpretation such as emotion, sarcasm or scene meaning is not modeled 
 - poor-fit is detected, but automatic translation-shortening feedback is not closed-loop
 - processing actions are synchronous; there is no background job/progress system yet
 - Reader uses structured overlays; there is no pre-rendered localized page cache/invalidation layer
-- post-commit best-effort asset cleanup can leave orphan files if interrupted; audit/GC tooling is deferred
-- frontend dependency resolution is not yet lockfile-hardened
-- OCR/LLM/prompt provenance is not yet sufficient for repeatable model benchmarking
-- chapter display numbering still uses the current numeric model
-- repository branch protection / required CI enforcement is not configured through the current tool boundary
+- asset GC is conservative rather than transactional across filesystem and SQLite; dry-run and a deletion grace period are intentional safety boundaries
+- repository branch protection / required CI enforcement is user-owned repository administration rather than an in-app feature
 - SFX reconstruction/style matching is deferred
 - no built-in multi-user authentication, collaboration or public manga catalog
 
@@ -248,11 +276,11 @@ These are explicit engineering/research targets, not hidden production claims.
 
 ## Agent Continuity experiment
 
-KomaMori is also the live test bed for **Agent Continuity v0.3**: disposable development sessions backed by GitHub for implementation/reviewable scope and an external SQLite execution-state snapshot.
+KomaMori is also the live test bed for **Agent Continuity v0.3.x**: disposable development sessions backed by GitHub for implementation/reviewable scope and an external SQLite execution-state snapshot.
 
 The current protocol adds durable `ScopeSource` / `ReviewFinding` capture, cross-cutting invariants, a Scope Capture Gate, commit-bound acceptance evidence, change-impact staleness, a Completion Gate and a mandatory Fresh Reviewer Gate. A new material reviewer finding invalidates prior capture/completion authority until it is recaptured and reverified.
 
-In Execute mode, scope creation, checkpoints, PR creation and running CI are intermediate milestones rather than stopping conditions; absent a real blocker, execution carries through to verification/review/finalization.
+In Execute mode, scope creation, checkpoints, PR creation, running CI and a single finalized phase are intermediate milestones when agent-executable work from the requested backlog remains. User-owned/external administration items stay visible for handoff but do not block unrelated execution.
 
 See [`docs/AGENT_CONTINUITY.md`](docs/AGENT_CONTINUITY.md).
 

@@ -6,6 +6,7 @@ import "./region-correction.css";
 import "./library-lifecycle.css";
 import "./term-aliases.css";
 import "./page-recovery.css";
+import "./chapter-identity.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

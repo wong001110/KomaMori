@@ -1,0 +1,14 @@
+.chapter-v2-form {
+  grid-template-columns: minmax(92px, .7fr) 82px minmax(150px, 1.5fr) auto;
+}
+
+.chapter-management .chapter-fields {
+  grid-template-columns: minmax(100px, .8fr) 90px minmax(150px, 1.4fr);
+}
+
+@media (max-width: 760px) {
+  .chapter-v2-form,
+  .chapter-management .chapter-fields {
+    grid-template-columns: 1fr;
+  }
+}

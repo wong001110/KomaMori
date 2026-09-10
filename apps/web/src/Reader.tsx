@@ -34,7 +34,7 @@ export function Reader({ chapterId, initialLocale, onLocaleChange, onBack, onEdi
         <button className="text-button" onClick={onBack}>← Library</button>
         <div className="reader-title">
           <span className="kicker">KomaMori Reader</span>
-          <strong>{view ? `#${view.number} ${view.title}` : "Loading…"}</strong>
+          <strong>{view ? `#${view.display_number} ${view.title}` : "Loading…"}</strong>
           {!showOriginal && <span className={`readiness-badge status-${readiness?.status ?? "in-progress"}`}>{readinessLabel}</span>}
         </div>
         <div className="reader-controls">

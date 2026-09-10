@@ -5,9 +5,13 @@ import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from fastapi import HTTPException
+
+TRANSLATION_PROMPT_VERSION = "manga-region-v1"
+TRANSLATION_TEMPERATURE = 0.2
+TRANSLATION_PROVENANCE_SCHEMA_VERSION = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +50,7 @@ class OpenAICompatibleTranslationProvider:
                     {"role": "system", "content": "You are a manga localization translator."},
                     {"role": "user", "content": prompt},
                 ],
-                "temperature": 0.2,
+                "temperature": TRANSLATION_TEMPERATURE,
             }
         ).encode("utf-8")
         request_object = urllib.request.Request(
@@ -67,6 +71,23 @@ class OpenAICompatibleTranslationProvider:
             return str(data["choices"][0]["message"]["content"]).strip()
         except (KeyError, IndexError, TypeError) as exc:
             raise HTTPException(status_code=502, detail="Translation provider returned an unexpected response") from exc
+
+
+def translation_provenance(provider: TranslationProvider, request: TranslationRequest) -> dict[str, Any]:
+    """Describe a machine translation without persisting credentials or full prompts."""
+    result: dict[str, Any] = {
+        "schema_version": TRANSLATION_PROVENANCE_SCHEMA_VERSION,
+        "kind": "machine",
+        "provider": "openai-compatible" if isinstance(provider, OpenAICompatibleTranslationProvider) else type(provider).__name__,
+        "prompt_version": TRANSLATION_PROMPT_VERSION,
+        "temperature": TRANSLATION_TEMPERATURE,
+        "context_regions": len(request.nearby_context),
+        "locked_term_count": len(request.locked_terms),
+    }
+    model = getattr(provider, "model", None)
+    if model:
+        result["model"] = str(model)
+    return result
 
 
 def get_translation_provider() -> TranslationProvider:

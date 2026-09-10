@@ -128,8 +128,6 @@ PR #11
 ### Phase 11 — Integrity & release semantics ✅
 PR #12
 
-Completed scope:
-
 - commit-safe DB/filesystem mutation ordering: prefer recoverable orphan files over dangling durable references
 - fail-safe re-analysis and unique generated mask/clean assets
 - source-review + deterministic-QA publication gate for locale `Ready`
@@ -143,6 +141,22 @@ Completed scope:
 
 Phase 11 passed Scope Capture, Completion and Fresh Reviewer gates on the accepted PR tree, was squash-merged, and was reconciled against the tree-equivalent merge commit.
 
+### Phase 12 — Backlog hardening & reproducibility 🚧
+PR #15
+
+Current required scope:
+
+- registry-resolved committed frontend lockfile; frontend/E2E/container builds use `npm ci`
+- secret-free OCR and translation provenance for repeatable model-path inspection
+- explicit manual / approved-memory localization provenance
+- additive chapter identity v2: human-facing `display_number` separated from numeric `sort_order`, with legacy `number` compatibility
+- dry-run-first orphan asset audit/GC with reference safety and an age grace period
+- regression tests and browser coverage for the migrated chapter workflow
+
+GitHub branch protection is deliberately **user-owned repository administration**. It remains visible as a handoff but is not an Agent Continuity blocker for executable project work.
+
+Phase 12 is complete only after its current manifest passes Scope Capture, Completion and Fresh Reviewer gates on the accepted commit, then passes post-merge reconciliation.
+
 ## Explicitly unfinished engineering
 
 These are tracked future work, not missing hidden scope:
@@ -154,11 +168,12 @@ These are tracked future work, not missing hidden scope:
 - measured/polygon-aware typography and layout
 - translation ↔ layout automatic shortening loop
 - optional pre-rendered localized-page cache + invalidation
-- orphan-asset audit/GC for files left behind when post-commit best-effort cleanup is interrupted
-- deterministic frontend dependency locking / `npm ci` hardening
-- OCR/LLM/prompt provenance for repeatable model benchmarking
-- chapter display-number / sort-order data-model redesign
-- repository branch protection / required-check policy when an administration-capable GitHub boundary is available
+
+## User-owned repository administration
+
+- configure GitHub `main` branch protection / rulesets and required CI checks according to the owner’s repository policy
+
+This item is not an application/runtime blocker and does not stop Execute mode from completing agent-owned backlog.
 
 ## Research track
 

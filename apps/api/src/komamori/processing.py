@@ -3,12 +3,14 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import cv2
 import numpy as np
 import pytesseract
 from PIL import Image
+
+OCR_PROVENANCE_SCHEMA_VERSION = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,6 +18,7 @@ class DetectedRegion:
     geometry: list[list[float]]
     text: str
     confidence: float | None
+    provenance: dict[str, Any]
 
 
 class OCRProvider(Protocol):
@@ -69,6 +72,32 @@ def get_ocr_provider() -> OCRProvider:
     return TesseractOCRProvider(os.getenv("KOMAMORI_TESSERACT_LANG", "jpn+jpn_vert"))
 
 
+def ocr_provenance(provider: OCRProvider, image: Image.Image) -> dict[str, Any]:
+    """Return secret-free, reproducibility-oriented metadata for one OCR read."""
+    base: dict[str, Any] = {
+        "schema_version": OCR_PROVENANCE_SCHEMA_VERSION,
+        "kind": "machine-ocr",
+    }
+    if isinstance(provider, TesseractOCRProvider):
+        return {
+            **base,
+            "provider": "tesseract",
+            "adapter": "pytesseract",
+            "language": provider._language_for(image),
+            "config": "--psm 6",
+        }
+    if isinstance(provider, MangaOCRProvider):
+        return {
+            **base,
+            "provider": "mangaocr",
+            "model": "manga-ocr-default",
+        }
+    return {
+        **base,
+        "provider": type(provider).__name__,
+    }
+
+
 def detect_text_boxes(image: Image.Image) -> list[tuple[int, int, int, int]]:
     rgb = np.array(image.convert("RGB"))
     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
@@ -117,6 +146,7 @@ def analyze_page(image_path: Path, ocr: OCRProvider) -> list[DetectedRegion]:
                     geometry=[[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
                     text=text,
                     confidence=confidence,
+                    provenance=ocr_provenance(ocr, crop),
                 )
             )
         return results
@@ -144,8 +174,15 @@ def generate_text_mask(image_path: Path, geometry: list[list[float]], output_pat
     text_mask = cv2.dilate(text_mask, np.ones((3, 3), np.uint8), iterations=1)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    if not cv2.imwrite(str(output_path), text_mask):
-        raise ValueError(f"Unable to write mask image: {output_path}")
+    try:
+        if not cv2.imwrite(str(output_path), text_mask):
+            raise ValueError(f"Unable to write mask image: {output_path}")
+    except Exception:
+        try:
+            output_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
     return output_path
 
 
@@ -166,6 +203,13 @@ def generate_clean_page(image_path: Path, mask_paths: list[Path], output_path: P
     cleaned = source if not np.any(total_mask) else cv2.inpaint(source, total_mask, 3, cv2.INPAINT_TELEA)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    if not cv2.imwrite(str(output_path), cleaned):
-        raise ValueError(f"Unable to write clean image: {output_path}")
+    try:
+        if not cv2.imwrite(str(output_path), cleaned):
+            raise ValueError(f"Unable to write clean image: {output_path}")
+    except Exception:
+        try:
+            output_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
     return output_path
