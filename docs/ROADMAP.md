@@ -141,21 +141,23 @@ PR #12
 
 Phase 11 passed Scope Capture, Completion and Fresh Reviewer gates on the accepted PR tree, was squash-merged, and was reconciled against the tree-equivalent merge commit.
 
-### Phase 12 — Backlog hardening & reproducibility 🚧
+### Phase 12 — Backlog hardening & reproducibility ✅
 PR #15
 
-Current required scope:
+Completed scope:
 
 - registry-resolved committed frontend lockfile; frontend/E2E/container builds use `npm ci`
 - secret-free OCR and translation provenance for repeatable model-path inspection
 - explicit manual / approved-memory localization provenance
 - additive chapter identity v2: human-facing `display_number` separated from numeric `sort_order`, with legacy `number` compatibility
-- dry-run-first orphan asset audit/GC with reference safety and an age grace period
+- dry-run-first orphan asset audit/GC with fresh reference safety and an age grace period
 - regression tests and browser coverage for the migrated chapter workflow
+- Fresh Reviewer remediation for legacy-number namespace isolation and SQLite GC snapshot freshness
+- noisy tool-boundary branch history compacted to one logical Phase 12 commit before final verification
 
 GitHub branch protection is deliberately **user-owned repository administration**. It remains visible as a handoff but is not an Agent Continuity blocker for executable project work.
 
-Phase 12 is complete only after its current manifest passes Scope Capture, Completion and Fresh Reviewer gates on the accepted commit, then passes post-merge reconciliation.
+Phase 12 passed Scope Capture, Completion and Fresh Reviewer gates on the exact PR head, CI run #101 passed backend/frontend/container/E2E checks, and PR #15 was squash-merged as `635b28bdc41f868ebc211a7c972391fb0cea08e1` with a tree identical to the verified head.
 
 ## Explicitly unfinished engineering
 
